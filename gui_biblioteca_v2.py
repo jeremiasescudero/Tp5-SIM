@@ -14,6 +14,135 @@ from simulador import Simulador
 from exportador import ExportadorExcel
 
 
+class VentanaConfiguracion(tk.Toplevel):
+    """Ventana modal para configuración de parámetros"""
+
+    def __init__(self, parent, config, callback):
+        super().__init__(parent)
+        self.title("Configuración de Parámetros - Simulación")
+        self.geometry("500x700")
+        self.configure(bg='white')
+        self.resizable(False, False)
+
+        self.config = config
+        self.callback = callback
+        self.vars_params = {}
+
+        # Modal
+        self.transient(parent)
+        self.grab_set()
+
+        self._crear_interfaz()
+
+        # Centrar ventana
+        self.update_idletasks()
+        x = (self.winfo_screenwidth() // 2) - (self.winfo_width() // 2)
+        y = (self.winfo_screenheight() // 2) - (self.winfo_height() // 2)
+        self.geometry(f'+{x}+{y}')
+
+    def _crear_interfaz(self):
+        """Crea la interfaz de configuración"""
+        # Frame principal con scrollbar
+        main_frame = ttk.Frame(self, padding="20")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Título
+        ttk.Label(main_frame, text="⚙ Configuración de Parámetros",
+                 font=('Segoe UI', 14, 'bold')).pack(pady=(0, 20))
+
+        # Canvas con scrollbar
+        canvas = tk.Canvas(main_frame, bg='white', highlightthickness=0, height=500)
+        scrollbar = ttk.Scrollbar(main_frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        # Parámetros de simulación
+        params_sim = [
+            ("Tiempo Máximo (min)", "TIEMPO_MAXIMO_SIMULACION", 480),
+            ("Max Iteraciones", "MAX_ITERACIONES", 100000),
+            ("Fila Inicio (j)", "HORA_INICIO_MOSTRAR", 0),
+            ("Filas a Mostrar (i)", "FILAS_A_MOSTRAR", 20),
+        ]
+
+        ttk.Label(scrollable_frame, text="Parámetros de Simulación",
+                 font=('Segoe UI', 11, 'bold')).grid(row=0, column=0, columnspan=2, pady=(0, 10), sticky=tk.W)
+
+        for idx, (label, key, default) in enumerate(params_sim, 1):
+            ttk.Label(scrollable_frame, text=label + ":").grid(row=idx, column=0, sticky=tk.W, pady=5, padx=(0, 10))
+            var = tk.StringVar(value=str(getattr(self.config, key, default)))
+            self.vars_params[key] = var
+            entry = ttk.Entry(scrollable_frame, textvariable=var, width=20)
+            entry.grid(row=idx, column=1, sticky=tk.W, pady=5)
+
+        # Parámetros del sistema
+        row_offset = len(params_sim) + 2
+        ttk.Separator(scrollable_frame, orient='horizontal').grid(
+            row=row_offset-1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=15)
+
+        ttk.Label(scrollable_frame, text="Parámetros del Sistema",
+                 font=('Segoe UI', 11, 'bold')).grid(row=row_offset, column=0, columnspan=2, pady=(0, 10), sticky=tk.W)
+
+        params_sistema = [
+            ("Tiempo Entre Llegadas (min)", "TIEMPO_ENTRE_LLEGADAS", 4),
+            ("Prob. Pedir Libro", "PROB_PEDIR_LIBRO", 0.45),
+            ("Prob. Devolver Libro", "PROB_DEVOLVER_LIBRO", 0.45),
+            ("Prob. Consultar", "PROB_CONSULTAR", 0.10),
+            ("Tiempo Consulta Min (min)", "TIEMPO_CONSULTA_MIN", 2),
+            ("Tiempo Consulta Max (min)", "TIEMPO_CONSULTA_MAX", 5),
+            ("Media Búsqueda EXP (min)", "MEDIA_BUSQUEDA", 6),
+            ("Prob. Retirarse", "PROB_RETIRARSE", 0.60),
+            ("K (100-200 pág)", "K_100_200_PAG", 100),
+            ("K (200-300 pág)", "K_200_300_PAG", 90),
+            ("K (>300 pág)", "K_MAS_300_PAG", 70),
+            ("Páginas Min", "PAGINAS_MIN", 100),
+            ("Páginas Max", "PAGINAS_MAX", 350),
+            ("Paso Euler (h)", "H_EULER", 0.1),
+            ("Capacidad Máxima", "CAPACIDAD_MAXIMA", 20),
+            ("Max Clientes Visibles", "MAX_CLIENTES_TABLA", 7),
+        ]
+
+        for idx, (label, key, default) in enumerate(params_sistema, row_offset + 1):
+            ttk.Label(scrollable_frame, text=label + ":").grid(row=idx, column=0, sticky=tk.W, pady=5, padx=(0, 10))
+            var = tk.StringVar(value=str(getattr(self.config, key, default)))
+            self.vars_params[key] = var
+            entry = ttk.Entry(scrollable_frame, textvariable=var, width=20)
+            entry.grid(row=idx, column=1, sticky=tk.W, pady=5)
+
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # Botones
+        btn_frame = ttk.Frame(self)
+        btn_frame.pack(fill=tk.X, padx=20, pady=20)
+
+        ttk.Button(btn_frame, text="✓ Ejecutar Simulación",
+                  command=self._ejecutar).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(btn_frame, text="✕ Cancelar",
+                  command=self.destroy).pack(side=tk.RIGHT, padx=5)
+
+    def _ejecutar(self):
+        """Aplica la configuración y ejecuta la simulación"""
+        try:
+            for key, var in self.vars_params.items():
+                value = var.get()
+                if '.' in value or 'EULER' in key or 'PROB' in key:
+                    setattr(self.config, key, float(value))
+                else:
+                    setattr(self.config, key, int(float(value)))
+
+            self.destroy()
+            self.callback()
+        except ValueError as e:
+            messagebox.showerror("Error", f"Valor inválido en configuración:\n{str(e)}", parent=self)
+
+
 class BibliotecaGUI_V2:
     """Interfaz gráfica mejorada con columnas dinámicas"""
 
@@ -33,6 +162,9 @@ class BibliotecaGUI_V2:
         self.root.geometry("1600x900")
         self.root.configure(bg='#f0f0f0')
 
+        # Maximizar ventana
+        self.root.state('zoomed')
+
         # Variables
         self.config = ConfigSimulacion()
         self.simulador = None
@@ -47,6 +179,9 @@ class BibliotecaGUI_V2:
         # Crear interfaz
         self._crear_menu()
         self._crear_interfaz()
+
+        # Mostrar ventana de configuración al inicio
+        self.root.after(100, self._mostrar_configuracion_inicial)
 
     def _configurar_estilos(self):
         """Configura los estilos de ttk"""
@@ -85,13 +220,18 @@ class BibliotecaGUI_V2:
         menubar = tk.Menu(self.root)
         self.root.config(menu=menubar)
 
+        # Menú Simulación
+        menu_simulacion = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Simulación", menu=menu_simulacion)
+        menu_simulacion.add_command(label="Nueva Simulación", command=self._mostrar_configuracion_inicial)
+        menu_simulacion.add_separator()
+        menu_simulacion.add_command(label="Salir", command=self.root.quit)
+
         # Menú Archivo
         menu_archivo = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Archivo", menu=menu_archivo)
         menu_archivo.add_command(label="Exportar a Excel", command=self._exportar_excel)
         menu_archivo.add_command(label="Exportar Integraciones", command=self._exportar_integraciones)
-        menu_archivo.add_separator()
-        menu_archivo.add_command(label="Salir", command=self.root.quit)
 
         # Menú Ver
         menu_ver = tk.Menu(menubar, tearoff=0)
@@ -106,146 +246,27 @@ class BibliotecaGUI_V2:
         menu_ayuda.add_command(label="Acerca de", command=self._mostrar_acerca_de)
 
     def _crear_interfaz(self):
-        """Crea la interfaz principal"""
+        """Crea la interfaz principal - SOLO RESULTADOS"""
         # Frame principal con padding
         main_frame = ttk.Frame(self.root, padding="10")
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
 
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
-        main_frame.columnconfigure(1, weight=3)
-        main_frame.rowconfigure(1, weight=1)
+        main_frame.columnconfigure(0, weight=1)
+        main_frame.rowconfigure(0, weight=1)
 
-        # Panel izquierdo - Configuración (mismo que antes)
-        self._crear_panel_configuracion(main_frame)
-
-        # Panel derecho - Resultados
+        # Solo panel de resultados (ocupa toda la ventana)
         self._crear_panel_resultados(main_frame)
 
-    def _crear_panel_configuracion(self, parent):
-        """Crea el panel de configuración de parámetros (igual que V1)"""
-        config_frame = ttk.LabelFrame(parent, text="⚙ Configuración de Parámetros",
-                                      padding="15", style='Card.TFrame')
-        config_frame.grid(row=0, column=0, rowspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 10))
-
-        # Canvas con scrollbar
-        canvas = tk.Canvas(config_frame, bg='white', highlightthickness=0)
-        scrollbar = ttk.Scrollbar(config_frame, orient="vertical", command=canvas.yview)
-        scrollable_frame = ttk.Frame(canvas, style='Card.TFrame')
-
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-
-        self.vars_params = {}
-
-        # Parámetros de simulación
-        params_sim = [
-            ("Tiempo Máximo (min)", "TIEMPO_MAXIMO_SIMULACION", 480),
-            ("Max Iteraciones", "MAX_ITERACIONES", 100000),
-            ("Fila Inicio (j)", "HORA_INICIO_MOSTRAR", 0),
-            ("Filas a Mostrar (i)", "FILAS_A_MOSTRAR", 20),
-        ]
-
-        ttk.Label(scrollable_frame, text="Parámetros de Simulación",
-                 style='Title.TLabel').grid(row=0, column=0, columnspan=2, pady=(0, 10), sticky=tk.W)
-
-        for idx, (label, key, default) in enumerate(params_sim, 1):
-            ttk.Label(scrollable_frame, text=label + ":",
-                     style='Subtitle.TLabel').grid(row=idx, column=0, sticky=tk.W, pady=5)
-            var = tk.StringVar(value=str(default))
-            self.vars_params[key] = var
-            entry = ttk.Entry(scrollable_frame, textvariable=var, width=15)
-            entry.grid(row=idx, column=1, sticky=tk.W, pady=5, padx=(10, 0))
-
-        # Parámetros del sistema
-        row_offset = len(params_sim) + 2
-        ttk.Separator(scrollable_frame, orient='horizontal').grid(
-            row=row_offset-1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=10)
-
-        ttk.Label(scrollable_frame, text="Parámetros del Sistema",
-                 style='Title.TLabel').grid(row=row_offset, column=0, columnspan=2, pady=(0, 10), sticky=tk.W)
-
-        params_sistema = [
-            ("Tiempo Entre Llegadas (min)", "TIEMPO_ENTRE_LLEGADAS", 4),
-            ("Prob. Pedir Libro", "PROB_PEDIR_LIBRO", 0.45),
-            ("Prob. Devolver Libro", "PROB_DEVOLVER_LIBRO", 0.45),
-            ("Prob. Consultar", "PROB_CONSULTAR", 0.10),
-            ("Tiempo Consulta Min (min)", "TIEMPO_CONSULTA_MIN", 2),
-            ("Tiempo Consulta Max (min)", "TIEMPO_CONSULTA_MAX", 5),
-            ("Media Búsqueda EXP (min)", "MEDIA_BUSQUEDA", 6),
-            ("Prob. Retirarse", "PROB_RETIRARSE", 0.60),
-        ]
-
-        for idx, (label, key, default) in enumerate(params_sistema, row_offset + 1):
-            ttk.Label(scrollable_frame, text=label + ":",
-                     style='Subtitle.TLabel').grid(row=idx, column=0, sticky=tk.W, pady=5)
-            var = tk.StringVar(value=str(default))
-            self.vars_params[key] = var
-            entry = ttk.Entry(scrollable_frame, textvariable=var, width=15)
-            entry.grid(row=idx, column=1, sticky=tk.W, pady=5, padx=(10, 0))
-
-        # Parámetros de integración
-        row_offset = row_offset + len(params_sistema) + 2
-        ttk.Separator(scrollable_frame, orient='horizontal').grid(
-            row=row_offset-1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=10)
-
-        ttk.Label(scrollable_frame, text="Parámetros de Integración",
-                 style='Title.TLabel').grid(row=row_offset, column=0, columnspan=2, pady=(0, 10), sticky=tk.W)
-
-        params_integracion = [
-            ("K (100-200 pág)", "K_100_200_PAG", 100),
-            ("K (200-300 pág)", "K_200_300_PAG", 90),
-            ("K (>300 pág)", "K_MAS_300_PAG", 70),
-            ("Páginas Min", "PAGINAS_MIN", 100),
-            ("Páginas Max", "PAGINAS_MAX", 350),
-            ("Paso Euler (h)", "H_EULER", 0.1),
-            ("Capacidad Máxima", "CAPACIDAD_MAXIMA", 20),
-            ("Max Clientes Visibles", "MAX_CLIENTES_TABLA", 7),
-        ]
-
-        for idx, (label, key, default) in enumerate(params_integracion, row_offset + 1):
-            ttk.Label(scrollable_frame, text=label + ":",
-                     style='Subtitle.TLabel').grid(row=idx, column=0, sticky=tk.W, pady=5)
-
-            if key == "MAX_CLIENTES_TABLA":
-                var = tk.StringVar(value=str(self.max_clientes_visible))
-                self.vars_params[key] = var
-            else:
-                var = tk.StringVar(value=str(default))
-                self.vars_params[key] = var
-
-            entry = ttk.Entry(scrollable_frame, textvariable=var, width=15)
-            entry.grid(row=idx, column=1, sticky=tk.W, pady=5, padx=(10, 0))
-
-        canvas.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
-        scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
-
-        config_frame.rowconfigure(0, weight=1)
-        config_frame.columnconfigure(0, weight=1)
-
-        # Botón de ejecutar
-        btn_frame = ttk.Frame(config_frame, style='Card.TFrame')
-        btn_frame.grid(row=1, column=0, columnspan=2, pady=(15, 0))
-
-        self.btn_ejecutar = ttk.Button(btn_frame, text="▶ Ejecutar Simulación",
-                                       command=self._ejecutar_simulacion,
-                                       style='Primary.TButton',
-                                       width=25)
-        self.btn_ejecutar.pack()
-
-        # Barra de progreso
-        self.progress = ttk.Progressbar(config_frame, mode='indeterminate')
-        self.progress.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(10, 0))
+    def _mostrar_configuracion_inicial(self):
+        """Muestra la ventana de configuración inicial"""
+        VentanaConfiguracion(self.root, self.config, self._ejecutar_simulacion)
 
     def _crear_panel_resultados(self, parent):
-        """Crea el panel de resultados"""
+        """Crea el panel de resultados - PANTALLA COMPLETA"""
         results_frame = ttk.Frame(parent)
-        results_frame.grid(row=0, column=1, rowspan=2, sticky=(tk.W, tk.E, tk.N, tk.S))
+        results_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         results_frame.rowconfigure(1, weight=1)
         results_frame.columnconfigure(0, weight=1)
 
@@ -321,6 +342,11 @@ class BibliotecaGUI_V2:
 
         # Treeview para mostrar el vector de estado
         # Las columnas serán dinámicas, creadas en _actualizar_tabla
+        # Estilo personalizado para hacer el texto más pequeño y que quepa mejor
+        style = ttk.Style()
+        style.configure("Treeview", rowheight=25, font=('Segoe UI', 9))
+        style.configure("Treeview.Heading", font=('Segoe UI', 9, 'bold'))
+
         self.tree_vector = ttk.Treeview(table_frame, show='headings',
                                        yscrollcommand=vsb.set, xscrollcommand=hsb.set)
 
@@ -367,36 +393,21 @@ class BibliotecaGUI_V2:
         self.frame_graficos_analisis = ttk.Frame(tab_analisis)
         self.frame_graficos_analisis.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-    def _aplicar_configuracion(self):
-        """Aplica la configuración ingresada"""
-        try:
-            for key, var in self.vars_params.items():
-                value = var.get()
-
-                if key == "MAX_CLIENTES_TABLA":
-                    self.max_clientes_visible = int(value)
-                elif '.' in value or 'EULER' in key:
-                    setattr(self.config, key, float(value))
-                else:
-                    setattr(self.config, key, int(float(value)))
-            return True
-        except ValueError as e:
-            messagebox.showerror("Error", f"Valor inválido en configuración:\n{str(e)}")
-            return False
-
     def _ejecutar_simulacion(self):
         """Ejecuta la simulación en un thread separado"""
         if self.simulacion_en_progreso:
             messagebox.showwarning("Aviso", "Ya hay una simulación en progreso")
             return
 
-        if not self._aplicar_configuracion():
-            return
+        # Aplicar max_clientes_visible si está configurado
+        if hasattr(self.config, 'MAX_CLIENTES_TABLA'):
+            self.max_clientes_visible = self.config.MAX_CLIENTES_TABLA
 
-        # Deshabilitar botón y mostrar progreso
-        self.btn_ejecutar.config(state='disabled')
-        self.progress.start(10)
         self.simulacion_en_progreso = True
+
+        # Mostrar mensaje de progreso
+        self.root.config(cursor="wait")
+        self.root.update()
 
         # Ejecutar en thread separado
         thread = threading.Thread(target=self._ejecutar_simulacion_thread, daemon=True)
@@ -422,8 +433,7 @@ class BibliotecaGUI_V2:
 
     def _simulacion_completada(self):
         """Callback cuando la simulación se completa"""
-        self.progress.stop()
-        self.btn_ejecutar.config(state='normal')
+        self.root.config(cursor="")
         self.simulacion_en_progreso = False
 
         # Actualizar métricas
@@ -442,8 +452,7 @@ class BibliotecaGUI_V2:
 
     def _simulacion_error(self, error_msg):
         """Callback cuando hay un error en la simulación"""
-        self.progress.stop()
-        self.btn_ejecutar.config(state='disabled')
+        self.root.config(cursor="")
         self.simulacion_en_progreso = False
         messagebox.showerror("Error", f"Error en la simulación:\n{error_msg}")
 
@@ -511,7 +520,7 @@ class BibliotecaGUI_V2:
         return clientes
 
     def _actualizar_tabla(self):
-        """Actualiza la tabla del vector de estado con columnas dinámicas"""
+        """Actualiza la tabla del vector de estado con columnas dinámicas IDÉNTICAS a la imagen"""
         if not self.vector_estado:
             return
 
@@ -534,117 +543,172 @@ class BibliotecaGUI_V2:
         todos_clientes = set()
         for idx in filas_a_mostrar:
             fila = self.vector_estado[idx]
-            clientes = self._obtener_clientes_en_fila(fila)
-            todos_clientes.update(clientes.keys())
+            if hasattr(fila, 'clientes_activos'):
+                todos_clientes.update(fila.clientes_activos.keys())
 
-        # Limitar a max_clientes_visible más recientes
+        # Ordenar clientes por ID y limitar a max_clientes_visible más recientes
         clientes_a_mostrar = sorted(list(todos_clientes))[-self.max_clientes_visible:]
 
-        # Construir columnas dinámicamente
-        columnas_basicas = [
-            "Fila", "Reloj", "Evento", "Prox_Evento",
-            "Estado_Bib", "Cola", "Leyendo",
-            "E1_Estado", "E1_Atend", "E2_Estado", "E2_Atend"
+        # COLUMNAS FIJAS - EXACTAS SEGÚN IMAGEN
+        columnas_fijas = [
+            "n°",
+            "Evento",
+            "Reloj",
+            "Tiempo entre llegadas",
+            "Proxima llegada",
+            "RND",
+            "Objetivo",
+            "RND",
+            "Tiempo de atencion",
+            "fin_atencion_alquiler1",
+            "fin_atencion_alquiler2",
+            "RND",
+            "Se queda?",
+            "RND paginas",
+            "RND",
+            "Tiempo de atencion devolucion1",
+            "fin_atencion_devolucion1",
+            "fin_atencion_devolucion2",
+            "RND",
+            "Tiempo de atencion consulta1",
+            "fin_atencion_consulta1",
+            "RND",
+            "Proxima llegada",
+            "AC atencion",
+            "AC tiempo de permanencia",
+            "AC clientes ociosos de empleados",
+            "Estado",
+            "Cola"
         ]
 
-        # Columnas por cliente
+        # COLUMNAS DINÁMICAS POR CLIENTE - Solo 6 columnas por cliente
         columnas_clientes = []
         for cliente_id in clientes_a_mostrar:
             columnas_clientes.extend([
-                f"C{cliente_id}_Estado",
-                f"C{cliente_id}_HLleg",
-                f"C{cliente_id}_TAtenc",
-                f"C{cliente_id}_FinLect"
+                f"Cliente {cliente_id} Estado",
+                f"Cliente {cliente_id} Hora",
+                f"Cliente {cliente_id} Tiempo de atencion",
+                f"Cliente {cliente_id} fin_lectura1",
+                f"Cliente {cliente_id} Estado",
+                f"Cliente {cliente_id} Hora"
             ])
 
-        # Columnas de acumuladores
-        columnas_acum = ["Llegadas", "Salidas", "Libros_Ped", "Libros_Dev", "Consultas"]
-
-        todas_columnas = columnas_basicas + columnas_clientes + columnas_acum
+        todas_columnas = columnas_fijas + columnas_clientes
 
         # Configurar columnas del Treeview
         self.tree_vector.configure(columns=todas_columnas)
 
-        # Configurar headers y anchos con colores
-        anchos = {
-            "Fila": 50, "Reloj": 70, "Evento": 100, "Prox_Evento": 100,
-            "Estado_Bib": 80, "Cola": 50, "Leyendo": 60,
-            "E1_Estado": 70, "E1_Atend": 70, "E2_Estado": 70, "E2_Atend": 70,
-            "Llegadas": 60, "Salidas": 60, "Libros_Ped": 70, "Libros_Dev": 70, "Consultas": 60
+        # Configurar headers y anchos
+        anchos_fijos = {
+            "n°": 40,
+            "Evento": 180,
+            "Reloj": 60,
+            "Tiempo entre llegadas": 130,
+            "Proxima llegada": 110,
+            "RND": 60,
+            "Objetivo": 70,
+            "Tiempo de atencion": 120,
+            "fin_atencion_alquiler1": 150,
+            "fin_atencion_alquiler2": 150,
+            "Se queda?": 80,
+            "RND paginas": 90,
+            "Tiempo de atencion devolucion1": 180,
+            "fin_atencion_devolucion1": 160,
+            "fin_atencion_devolucion2": 160,
+            "Tiempo de atencion consulta1": 170,
+            "fin_atencion_consulta1": 150,
+            "AC atencion": 90,
+            "AC tiempo de permanencia": 160,
+            "AC clientes ociosos de empleados": 200,
+            "Estado": 80,
+            "Cola": 60
         }
 
         for col in todas_columnas:
-            # Texto del header
-            header_text = col.replace("_", " ")
-
-            # Configurar header
-            self.tree_vector.heading(col, text=header_text)
+            # Configurar header (sin cambios al texto)
+            self.tree_vector.heading(col, text=col)
 
             # Configurar ancho
-            if col.startswith("C"):
-                # Columnas de clientes
-                ancho = 70
+            if col.startswith("Cliente "):  # Columnas de clientes
+                ancho = 100
             else:
-                ancho = anchos.get(col, 80)
+                ancho = anchos_fijos.get(col, 80)
 
-            self.tree_vector.column(col, width=ancho, anchor='center')
+            self.tree_vector.column(col, width=ancho, anchor='center', stretch=False)
 
         # Configurar tags de color
         self.tree_vector.tag_configure('evenrow', background='#f9f9f9')
         self.tree_vector.tag_configure('oddrow', background='white')
         self.tree_vector.tag_configure('lastrow', background=self.COLOR_ULTIMA_FILA, font=('Segoe UI', 9, 'bold'))
-        self.tree_vector.tag_configure('permanente', foreground='#2E7D32')  # Verde oscuro
-        self.tree_vector.tag_configure('temporal', foreground='#F57C00')    # Naranja oscuro
-        self.tree_vector.tag_configure('cola', foreground='#1976D2')        # Azul oscuro
 
         # Insertar filas
         for idx in filas_a_mostrar:
             fila = self.vector_estado[idx]
 
             # Próximo evento
-            prox_evento = ""
+            prox_evento_tiempo = ""
             if fila.proximos_eventos:
-                prox_evento = fila.proximos_eventos[0]['tipo'][:15]
+                prox_evento_tiempo = f"{fila.proximos_eventos[0]['tiempo']:.2f}"
 
-            # Valores básicos
+            # Formatear helper
+            def fmt_num(val):
+                if val is None or val == "":
+                    return ""
+                if isinstance(val, (int, float)):
+                    return f"{val:.2f}"
+                return str(val)
+
+            # Obtener acumuladores
+            acc = fila.acumuladores if hasattr(fila, 'acumuladores') else {}
+
+            # Valores fijos - orden exacto según columnas_fijas
             valores = [
-                fila.numero_fila,
-                f"{fila.reloj:.2f}",
-                fila.evento[:15],
-                prox_evento,
-                "CERR" if fila.biblioteca['cerrada'] else "ABIER",
-                len(fila.biblioteca['cola_atencion']),
-                len(fila.biblioteca['personas_leyendo']),
-                fila.biblioteca['empleados'][0]['estado'][:6],
-                fila.biblioteca['empleados'][0]['persona_atendiendo'] or "",
-                fila.biblioteca['empleados'][1]['estado'][:6],
-                fila.biblioteca['empleados'][1]['persona_atendiendo'] or "",
+                fila.numero_fila,  # n°
+                fila.evento,  # Evento
+                fmt_num(fila.reloj),  # Reloj
+                fmt_num(self.config.TIEMPO_ENTRE_LLEGADAS) if fila.numero_fila > 0 else "",  # Tiempo entre llegadas
+                prox_evento_tiempo,  # Proxima llegada
+                fmt_num(fila.randoms_usados.get('llegada', '')),  # RND
+                "",  # Objetivo
+                fmt_num(fila.randoms_usados.get('tipo_accion', '')),  # RND
+                fmt_num(fila.randoms_usados.get('tiempo_servicio', '')),  # Tiempo de atencion
+                "",  # fin_atencion_alquiler1
+                "",  # fin_atencion_alquiler2
+                fmt_num(fila.randoms_usados.get('decision_leer', '')),  # RND
+                "",  # Se queda?
+                fmt_num(fila.randoms_usados.get('num_paginas', '')),  # RND paginas
+                "",  # RND
+                "",  # Tiempo de atencion devolucion1
+                "",  # fin_atencion_devolucion1
+                "",  # fin_atencion_devolucion2
+                "",  # RND
+                "",  # Tiempo de atencion consulta1
+                "",  # fin_atencion_consulta1
+                "",  # RND
+                "",  # Proxima llegada
+                "",  # AC atencion
+                fmt_num(acc.get('tiempo_acumulado_permanencia', 0)),  # AC tiempo de permanencia
+                fmt_num(acc.get('tiempo_acumulado_empleados_ociosos', 0)),  # AC clientes ociosos de empleados
+                "Abierta" if not fila.biblioteca['cerrada'] else "Cerrada",  # Estado
+                len(fila.biblioteca['cola_atencion'])  # Cola
             ]
 
-            # Obtener clientes en esta fila
-            clientes = self._obtener_clientes_en_fila(fila)
-
-            # Valores por cliente
+            # Valores dinámicos por cliente
             for cliente_id in clientes_a_mostrar:
-                if cliente_id in clientes:
-                    c = clientes[cliente_id]
+                if hasattr(fila, 'clientes_activos') and cliente_id in fila.clientes_activos:
+                    c = fila.clientes_activos[cliente_id]
+
                     valores.extend([
-                        c['estado'][:6],           # Estado abreviado
-                        f"{c['hora_llegada']:.1f}",
-                        f"{c['tiempo_atencion']:.1f}" if isinstance(c['tiempo_atencion'], (int, float)) else "",
-                        c['fin_lectura']
+                        c.get('estado', ''),                    # Cliente X Estado
+                        fmt_num(c.get('hora_llegada', '')),    # Cliente X Hora
+                        "",                                     # Cliente X Tiempo de atencion
+                        "",                                     # Cliente X fin_lectura1
+                        c.get('estado', ''),                    # Cliente X Estado (duplicado)
+                        ""                                      # Cliente X Hora (duplicado)
                     ])
                 else:
-                    valores.extend(["", "", "", ""])  # Cliente no presente
-
-            # Acumuladores
-            valores.extend([
-                fila.acumuladores['total_personas_llegadas'],
-                fila.acumuladores['total_personas_salidas'],
-                fila.acumuladores['total_libros_pedidos'],
-                fila.acumuladores['total_libros_devueltos'],
-                fila.acumuladores['total_consultas']
-            ])
+                    # Cliente no presente en esta fila
+                    valores.extend([""] * 6)
 
             # Determinar tag
             if idx == ultima_idx and idx != filas_a_mostrar[0]:
@@ -794,10 +858,13 @@ class BibliotecaGUI_V2:
         # Subplot 4: Métricas finales (barras)
         ax4 = fig.add_subplot(2, 2, 4)
         categorias = ['Libros\nPedidos', 'Libros\nDevueltos', 'Consultas']
+
+        # Obtener acumuladores de la última fila del vector de estado
+        ultima_fila = self.vector_estado[-1] if self.vector_estado else None
         valores = [
-            self.acumuladores['total_libros_pedidos'] if hasattr(self, 'simulador') and self.simulador else 0,
-            self.acumuladores['total_libros_devueltos'] if hasattr(self, 'simulador') and self.simulador else 0,
-            self.acumuladores['total_consultas'] if hasattr(self, 'simulador') and self.simulador else 0
+            ultima_fila.acumuladores['total_libros_pedidos'] if ultima_fila else 0,
+            ultima_fila.acumuladores['total_libros_devueltos'] if ultima_fila else 0,
+            ultima_fila.acumuladores['total_consultas'] if ultima_fila else 0
         ]
 
         barras = ax4.bar(categorias, valores, color=['#0078D4', '#00B294', '#FFB900'])

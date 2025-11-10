@@ -3,7 +3,11 @@
     "allow": [
       "Bash(pip install:*)",
       "Bash(dir:*)",
-      "Bash(python -m py_compile:*)"
+      "Bash(python -m py_compile:*)",
+      "Bash(python gui_biblioteca_v2.py:*)",
+      "Bash(python gui_pyqt5.py:*)",
+      "Bash(taskkill:*)",
+      "Bash(nul)"
     ],
     "deny": [],
     "ask": []
