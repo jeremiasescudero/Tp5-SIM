@@ -16,6 +16,7 @@ import math
 from enum import Enum
 from dataclasses import dataclass
 from typing import List, Optional, Dict
+import copy # <-- AGREGADO
 
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -39,24 +40,11 @@ except ImportError:
 class IntegradorEuler:
     """
     INTEGRACIÓN NUMÉRICA POR MÉTODO DE EULER
-
-    Resuelve la ecuación diferencial: dP/dt = K/5
-    donde:
-    - P = páginas leídas
-    - t = tiempo
-    - K = constante que depende del número de páginas del libro
-
-    El método de Euler usa la fórmula:
-    P(t + h) = P(t) + h * f(P, t)
-    donde f(P, t) = dP/dt = K/5
+    
+    ... (Mismo código)
     """
 
     def __init__(self, h: float, K: int, p_inicial: float = 0):
-        """
-        h: paso de integración (más pequeño = más preciso)
-        K: constante según número de páginas
-        p_inicial: páginas leídas al inicio
-        """
         self.h = h
         self.K = K
         self.p = p_inicial
@@ -330,7 +318,6 @@ class Simulacion:
         # Lógica de cierre y rechazo
         if len(self.clientes_activos) >= self.capacidad_maxima:
             self.total_clientes_rechazados += 1
-            # El cliente es rechazado y no entra al sistema. No se crea la instancia Cliente.
             
             # Próxima llegada (solo se programa si no se ha alcanzado el tiempo máximo)
             proxima_llegada = self.reloj + self.tiempo_entre_llegadas
@@ -442,13 +429,13 @@ class Simulacion:
             if rnd_decision < self.prob_retirarse:
                 # Se retira
                 cliente.se_retira = True
-                cliente.estado = "Fuera del sistema"
+                cliente.estado = "Fuera del sistema" 
                 cliente.hora_salida = self.reloj
                 self._cliente_sale(cliente)
             else:
                 # Se queda a leer (40%)
                 cliente.se_retira = False
-                cliente.estado = "Leyendo"
+                cliente.estado = "Leyendo" 
 
                 # Generar páginas a leer: U[100, 350]
                 rnd_paginas = random.random()
@@ -473,7 +460,7 @@ class Simulacion:
                 ))
         else:
             # Consultas y devoluciones se retiran directamente
-            cliente.estado = "Fuera del sistema"
+            cliente.estado = "Fuera del sistema" 
             cliente.hora_salida = self.reloj
             self._cliente_sale(cliente)
 
@@ -484,7 +471,7 @@ class Simulacion:
 
     def procesar_fin_lectura(self, evento: Evento):
         cliente = evento.datos['cliente']
-        cliente.estado = "Fuera del sistema"
+        cliente.estado = "Fuera del sistema" 
         cliente.hora_salida = self.reloj
 
         if cliente in self.clientes_leyendo:
@@ -493,6 +480,10 @@ class Simulacion:
         self._cliente_sale(cliente)
 
     def _cliente_sale(self, cliente: Cliente):
+        """
+        Finaliza el ciclo del cliente y lo remueve del sistema activo.
+        """
+        # Si el cliente está en clientes_activos, lo removemos.
         if cliente in self.clientes_activos:
             self.clientes_activos.remove(cliente)
 
@@ -621,6 +612,10 @@ class Simulacion:
         objetivo_val = cliente_actual.objetivo.value if cliente_actual and cliente_actual.estado != "RECHAZADO" else ('RECHAZADO' if cliente_actual and cliente_actual.estado == "RECHAZADO" else '')
         rnd_obj_val = cliente_actual.rnd_objetivo if cliente_actual and cliente_actual.estado != "RECHAZADO" else ''
 
+        # Copia profunda de los clientes activos para evitar que los cambios posteriores
+        # (ej: la salida del cliente) modifiquen la traza histórica.
+        clientes_copiados = [copy.deepcopy(c) for c in self.clientes_activos] # <-- CORRECCIÓN CLAVE AQUÍ
+
         return {
             'n': self.numero_fila,
             'evento': evento.tipo.value,
@@ -662,7 +657,7 @@ class Simulacion:
             'cola': len(self.cola_espera),
             'ac_tiempo_permanencia': self.ac_tiempo_permanencia,
             'ac_clientes_leyendo': self.total_clientes_leyendo,
-            'clientes': self.clientes_activos.copy()
+            'clientes': clientes_copiados # <-- USANDO LA COPIA PROFUNDA
         }
 
 
@@ -822,7 +817,7 @@ class MainWindow(QMainWindow):
         self.btn_ejecutar.setEnabled(False)
         self.btn_exportar.setEnabled(False)
         self.progress_bar.setVisible(True)
-        self.progress_bar.setRange(0, 0)  # Modo indeterminado
+        self.progress_bar.setRange(0, 0)
         self.lbl_status.setText("⏳ Ejecutando simulación completa...")
 
         # Crear nueva simulación
@@ -968,7 +963,7 @@ class MainWindow(QMainWindow):
         # 3. Fines de lectura de clientes activos (buscar en la lista de clientes)
         for cliente in datos['clientes']:
             if cliente.estado == "Leyendo" and cliente.fin_lectura is not None and cliente.fin_lectura > datos['reloj']:
-                 tiempos_proximos.append(cliente.fin_lectura)
+                tiempos_proximos.append(cliente.fin_lectura)
 
         min_tiempo_proximo = min(tiempos_proximos) if tiempos_proximos else None
 
@@ -1032,8 +1027,6 @@ class MainWindow(QMainWindow):
         ]
 
         # Mapeo de columna fija a tiempo de evento (para chequeo de resaltado)
-        # NOTA: Los índices de las columnas de tiempo de fin (9, 10, 18, 19, 22) no cambiaron
-        # porque la columna eliminada (Estado, índice 29) estaba después de los empleados.
         map_tiempos_fijos = {
             COL_PROX_LLEGADA: datos.get('proxima_llegada'),
             COL_FIN_BUSQ_EMP1: datos.get('fin_atencion_alq1'),
@@ -1070,9 +1063,10 @@ class MainWindow(QMainWindow):
                 
                 # Agregar Fin Lectura a mapeo de tiempos si es el próximo
                 if c.estado == "Leyendo" and c.fin_lectura is not None:
-                     map_tiempos_fijos[col_offset + 3] = c.fin_lectura
+                    map_tiempos_fijos[col_offset + 3] = c.fin_lectura
 
             else:
+                # El cliente ya salió (no está en clientes_activos). Se deja vacío en la traza dinámica.
                 valores.extend(['', '', '', ''])
             
             col_offset += 4
@@ -1110,8 +1104,8 @@ class MainWindow(QMainWindow):
             
             # 2. Resaltar si coincide con el mínimo global y es mayor al reloj actual
             if min_tiempo_proximo is not None and tiempo_columna == min_tiempo_proximo and tiempo_columna > datos['reloj']:
-                 item.setForeground(QColor(255, 0, 0)) # Color de texto rojo fuerte
-                 item.setFont(QFont("Arial", 9, QFont.Bold))
+                item.setForeground(QColor(255, 0, 0)) # Color de texto rojo fuerte
+                item.setFont(QFont("Arial", 9, QFont.Bold))
 
             self.tabla.setItem(row, col, item)
 
