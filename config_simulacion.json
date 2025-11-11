@@ -1,0 +1,16 @@
+{
+  "tiempo_entre_llegadas": 2.0,
+  "prob_pedir_libro": 0.75,
+  "prob_devolver_libro": 0.15,
+  "prob_consultar": 0.1,
+  "tiempo_consulta_min": 2.0,
+  "tiempo_consulta_max": 5.0,
+  "prob_retirarse": 0.2,
+  "tiempo_simulacion": 10000.0,
+  "max_iteraciones": 100000,
+  "k_100_200": 100,
+  "k_200_300": 90,
+  "k_300_plus": 70,
+  "hora_desde": 0.0,
+  "hora_hasta": 1500.0
+}

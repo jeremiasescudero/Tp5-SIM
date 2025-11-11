@@ -12,6 +12,8 @@ import sys
 import random
 import heapq
 import math
+import json
+import os
 from enum import Enum
 from dataclasses import dataclass
 from typing import List, Optional, Dict
@@ -44,15 +46,34 @@ class IntegradorEuler:
         self.K = K
         self.p = p_inicial
         self.t = 0.0
+        self.historial_pasos = []  # Guardar el historial de pasos
+
     def derivada(self, p: float, t: float) -> float:
         return self.K / 5.0
+
     def paso(self) -> float:
-        self.p = self.p + self.h * self.derivada(self.p, self.t)
+        derivada_actual = self.derivada(self.p, self.t)
+        # Guardar estado antes del paso
+        self.historial_pasos.append({
+            't': self.t,
+            'p': self.p,
+            'derivada': derivada_actual,
+            'h': self.h
+        })
+        self.p = self.p + self.h * derivada_actual
         self.t += self.h
         return self.p
+
     def integrar_hasta_paginas(self, paginas_objetivo: float) -> float:
         while self.p < paginas_objetivo:
             self.paso()
+        # Agregar el estado final
+        self.historial_pasos.append({
+            't': self.t,
+            'p': self.p,
+            'derivada': self.derivada(self.p, self.t),
+            'h': self.h
+        })
         return self.t
 
 
@@ -60,7 +81,7 @@ class IntegradorEuler:
 
 class TipoEvento(Enum):
     INICIALIZACION = "inicializacion"
-    LLEGADA_CLIENTE = "llegada_alquiler"
+    LLEGADA_CLIENTE = "llegada_cliente"
     FIN_ATENCION = "fin_atencion_cliente"
     FIN_LECTURA = "fin_lectura"
     FIN_SIMULACION = "fin_simulacion"
@@ -151,11 +172,14 @@ class Simulacion:
         self.tiempo_devolucion_max = 2.5
         self.paginas_min = 100
         self.paginas_max = 350
-        self.K_100_200 = 100
-        self.K_200_300 = 90
-        self.K_300_plus = 70
+        self.K_100_200 = parametros.get('k_100_200', 100)
+        self.K_200_300 = parametros.get('k_200_300', 90)
+        self.K_300_plus = parametros.get('k_300_plus', 70)
         self.capacidad_maxima = 20
-        self.tiempo_maximo = 480.0
+        self.tiempo_maximo = parametros.get('tiempo_simulacion', 480.0)
+        self.max_iteraciones = parametros.get('max_iteraciones', 100000)
+        self.hora_desde = parametros.get('hora_desde', 0)
+        self.hora_hasta = parametros.get('hora_hasta', 100000.0)
         self.h_euler = 0.1
 
         # Estado de la simulación
@@ -168,6 +192,7 @@ class Simulacion:
         self.contador_clientes = 0
         self.numero_fila = 0
         self.ultimo_reloj = 0.0
+        self.iteracion_actual = 0
 
         # Acumuladores
         self.ac_tiempo_permanencia = 0.0
@@ -180,6 +205,7 @@ class Simulacion:
         self.tiempo_inicio_cerrada: Optional[float] = None
 
         self.historial_filas: List[dict] = []
+        self.historial_integraciones: List[dict] = []  # Guardar todas las integraciones
 
     def determinar_K(self, num_paginas: int) -> int:
         if 100 <= num_paginas <= 200:
@@ -188,6 +214,11 @@ class Simulacion:
             return self.K_200_300
         else:
             return self.K_300_plus
+
+    def contar_personas_leyendo(self) -> int:
+        """Cuenta las personas que están LEYENDO dentro de la biblioteca"""
+        # Según el enunciado, solo se cuentan las personas LEYENDO
+        return len(self.clientes_leyendo)
 
     def generar_objetivo(self) -> tuple:
         rnd = random.random()
@@ -229,6 +260,7 @@ class Simulacion:
 
     def iniciar(self):
         self.numero_fila = 0
+        self.iteracion_actual = 0
         self.historial_filas.append(self._capturar_estado(
             Evento(tiempo=0.0, tipo=TipoEvento.INICIALIZACION, datos={})
         ))
@@ -250,10 +282,13 @@ class Simulacion:
 
     def procesar_llegada_cliente(self, evento: Evento):
         self.total_clientes_generados += 1
-        
-        if len(self.clientes_activos) >= self.capacidad_maxima:
+
+        # Verificar si la biblioteca está llena (20 personas LEYENDO)
+        personas_leyendo = self.contar_personas_leyendo()
+
+        if personas_leyendo >= self.capacidad_maxima:
             self.total_clientes_rechazados += 1
-            
+
             proxima_llegada = self.reloj + self.tiempo_entre_llegadas
             if proxima_llegada < self.tiempo_maximo:
                 self.agregar_evento(Evento(
@@ -261,13 +296,13 @@ class Simulacion:
                     tipo=TipoEvento.LLEGADA_CLIENTE,
                     datos={}
                 ))
-            
+
             cliente_rechazado = Cliente(
-                id=self.total_clientes_generados, 
+                id=self.total_clientes_generados,
                 hora_llegada=self.reloj,
-                objetivo=TipoObjetivo.CONSULTAR, 
+                objetivo=TipoObjetivo.CONSULTAR,
                 rnd_objetivo=0.0,
-                estado="RECHAZADO" 
+                estado="RECHAZADO"
             )
             evento.datos['cliente'] = cliente_rechazado
             return
@@ -283,8 +318,9 @@ class Simulacion:
 
         self.clientes_activos.append(cliente)
         evento.datos['cliente'] = cliente
-        
-        if len(self.clientes_activos) >= self.capacidad_maxima:
+
+        # Actualizar estado de la biblioteca basado en personas leyendo
+        if self.contar_personas_leyendo() >= self.capacidad_maxima:
             self.biblioteca_cerrada = True
             self.tiempo_inicio_cerrada = self.reloj
 
@@ -371,6 +407,16 @@ class Simulacion:
                 cliente.tiempo_lectura = integrador.integrar_hasta_paginas(cliente.paginas_a_leer)
                 cliente.fin_lectura = self.reloj + cliente.tiempo_lectura
 
+                # Guardar el historial de integración para este cliente
+                self.historial_integraciones.append({
+                    'cliente_id': cliente.id,
+                    'paginas_objetivo': cliente.paginas_a_leer,
+                    'K': K,
+                    'h': self.h_euler,
+                    'tiempo_total': cliente.tiempo_lectura,
+                    'pasos': integrador.historial_pasos
+                })
+
                 self.clientes_leyendo.append(cliente)
                 self.total_clientes_leyendo += 1
 
@@ -408,16 +454,25 @@ class Simulacion:
 
         self.total_clientes_atendidos += 1
 
-        if self.biblioteca_cerrada and len(self.clientes_activos) < self.capacidad_maxima:
+        # Reabrir biblioteca si hay espacio disponible (menos de 20 leyendo)
+        if self.biblioteca_cerrada and self.contar_personas_leyendo() < self.capacidad_maxima:
             self.biblioteca_cerrada = False
+            if self.tiempo_inicio_cerrada is not None:
+                self.tiempo_biblioteca_cerrada_ac += self.reloj - self.tiempo_inicio_cerrada
             self.tiempo_inicio_cerrada = None
 
     def ejecutar_paso(self) -> Optional[dict]:
+        # Verificar límite de iteraciones
+        if self.iteracion_actual >= self.max_iteraciones:
+            if self.biblioteca_cerrada and self.tiempo_inicio_cerrada is not None:
+                self.tiempo_biblioteca_cerrada_ac += self.tiempo_maximo - self.reloj
+            return None
+
         evento = self.proximo_evento()
         if not evento or evento.tipo == TipoEvento.FIN_SIMULACION:
             if self.biblioteca_cerrada and self.tiempo_inicio_cerrada is not None:
                 self.tiempo_biblioteca_cerrada_ac += self.tiempo_maximo - self.reloj
-            
+
             return None
 
         if self.biblioteca_cerrada and self.tiempo_inicio_cerrada is not None:
@@ -426,7 +481,7 @@ class Simulacion:
 
         self.reloj = evento.tiempo
         self.ultimo_reloj = self.reloj
-        
+
         if evento.tipo == TipoEvento.LLEGADA_CLIENTE:
             self.procesar_llegada_cliente(evento)
         elif evento.tipo == TipoEvento.FIN_ATENCION:
@@ -437,7 +492,8 @@ class Simulacion:
         fila_datos = self._capturar_estado(evento)
 
         self.historial_filas.append(fila_datos)
-        self.numero_fila += 1 
+        self.numero_fila += 1
+        self.iteracion_actual += 1
 
         return fila_datos
 
@@ -501,6 +557,7 @@ class Simulacion:
             'empleado2_ac_atencion': self.empleados[1].tiempo_acumulado_atencion,
             'empleado2_ac_ocioso': self.empleados[1].tiempo_acumulado_ocioso,
             'estado_biblioteca': 'Cerrada' if self.biblioteca_cerrada else 'Abierta',
+            'personas_leyendo': self.contar_personas_leyendo(),
             'cola': len(self.cola_espera),
             'ac_tiempo_permanencia': self.ac_tiempo_permanencia,
             'ac_clientes_leyendo': self.total_clientes_leyendo,
@@ -544,6 +601,8 @@ class SimulacionThread(QThread):
 
 class ConfiguracionWindow(QDialog):
     """Ventana para configurar los parámetros esenciales de la simulación."""
+    CONFIG_FILE = "config_simulacion.json"
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("⚙️ Configuración de Parámetros Esenciales")
@@ -562,6 +621,9 @@ class ConfiguracionWindow(QDialog):
         btn_iniciar.setStyleSheet("background-color: #2196F3; color: white; padding: 10px; font-size: 12pt; font-weight: bold; border-radius: 5px;")
         btn_iniciar.clicked.connect(self.aceptar)
         main_layout.addWidget(btn_iniciar)
+
+        # Cargar configuración guardada
+        self.cargar_configuracion()
 
     def crear_tab_parametros(self):
         widget = QWidget()
@@ -601,7 +663,49 @@ class ConfiguracionWindow(QDialog):
         self.s_prob_retirarse = QDoubleSpinBox(value=0.60, decimals=2, minimum=0.0, maximum=1.0, singleStep=0.01)
         group_lectura_decision.layout().addRow("P(Se retira después de pedir):", self.s_prob_retirarse)
         layout.addRow(group_lectura_decision)
-        
+
+        # 5. Parámetros de Simulación
+        group_simulacion = QGroupBox("5. Parámetros de Simulación")
+        group_simulacion.setLayout(QFormLayout())
+        self.s_tiempo_simulacion = QDoubleSpinBox(value=480.0, decimals=1, minimum=1.0, maximum=100000.0, singleStep=10.0)
+        self.s_max_iteraciones = QSpinBox(value=100000, minimum=1, maximum=1000000, singleStep=1000)
+        group_simulacion.layout().addRow("X - Tiempo de Simulación (min):", self.s_tiempo_simulacion)
+        group_simulacion.layout().addRow("N - Cantidad máxima de iteraciones:", self.s_max_iteraciones)
+        layout.addRow(group_simulacion)
+
+        # 6. Constantes K de Integración Numérica
+        group_k = QGroupBox("6. Constantes K de Integración Numérica (Método de Euler)")
+        group_k.setLayout(QFormLayout())
+
+        info_k = QLabel("dP/dt = K/5, donde K depende del rango de páginas:")
+        info_k.setStyleSheet("color: #333; font-size: 9pt; font-style: italic;")
+        group_k.layout().addRow(info_k)
+
+        self.s_k_100_200 = QSpinBox(value=100, minimum=1, maximum=1000, singleStep=10)
+        self.s_k_200_300 = QSpinBox(value=90, minimum=1, maximum=1000, singleStep=10)
+        self.s_k_300_plus = QSpinBox(value=70, minimum=1, maximum=1000, singleStep=10)
+
+        group_k.layout().addRow("K [100-200 páginas]:", self.s_k_100_200)
+        group_k.layout().addRow("K [201-300 páginas]:", self.s_k_200_300)
+        group_k.layout().addRow("K [301+ páginas]:", self.s_k_300_plus)
+        layout.addRow(group_k)
+
+        # 7. Rango de Visualización (Vector de Estado)
+        group_visualizacion = QGroupBox("7. Rango de Visualización en Tabla (Filtro de Eventos)")
+        group_visualizacion.setLayout(QFormLayout())
+        self.s_hora_desde = QDoubleSpinBox(value=0.0, decimals=1, minimum=0.0, maximum=100000.0, singleStep=10.0)
+        self.s_hora_hasta = QDoubleSpinBox(value=100000.0, decimals=1, minimum=0.0, maximum=100000.0, singleStep=10.0)
+
+        info_label = QLabel("⚠️ Estos valores filtran qué eventos se MUESTRAN en la tabla.\n"
+                           "Para ver TODOS los eventos, usa valores muy grandes (ej: j=100000)")
+        info_label.setStyleSheet("color: #856404; font-size: 9pt; font-style: italic;")
+        info_label.setWordWrap(True)
+
+        group_visualizacion.layout().addRow(info_label)
+        group_visualizacion.layout().addRow("i - Desde hora (min):", self.s_hora_desde)
+        group_visualizacion.layout().addRow("j - Hasta hora (min):", self.s_hora_hasta)
+        layout.addRow(group_visualizacion)
+
         return widget
     
     def crear_tab_fijos(self):
@@ -611,17 +715,14 @@ class ConfiguracionWindow(QDialog):
 
         group_fijos = QGroupBox("Parámetros Fijos (No Parametrizables por Requerimiento)")
         group_fijos.setStyleSheet("QGroupBox { font-style: italic; } QLabel { color: #6c757d; }")
-        
+
         fixed_layout = QFormLayout()
         fixed_layout.addRow("T. Búsqueda (Media EXP):", QLabel("6.0 min"))
         fixed_layout.addRow("T. Devolución (U[Min, Max]):", QLabel("U[1.5, 2.5] min"))
         fixed_layout.addRow("Páginas (U[Min, Max]):", QLabel("U[100, 350]"))
-        fixed_layout.addRow("Constante K [100-200 pág]:", QLabel("100"))
-        fixed_layout.addRow("Constante K [201-300 pág]:", QLabel("90"))
-        fixed_layout.addRow("Constante K [> 300 pág]:", QLabel("70"))
-        fixed_layout.addRow("Capacidad Máxima:", QLabel("20 personas"))
-        fixed_layout.addRow("T. Simulación Máximo:", QLabel("480.0 min"))
-        
+        fixed_layout.addRow("Capacidad Máxima:", QLabel("20 personas leyendo"))
+        fixed_layout.addRow("Paso de integración (h):", QLabel("0.1 = 10 min"))
+
         group_fijos.setLayout(fixed_layout)
         layout.addRow(group_fijos)
         return widget
@@ -641,9 +742,21 @@ class ConfiguracionWindow(QDialog):
         
         # Validación de rangos
         if self.s_cons_min.value() > self.s_cons_max.value():
-            QMessageBox.critical(self, "Error de Rango", 
+            QMessageBox.critical(self, "Error de Rango",
                                 "El valor mínimo de consulta no puede ser mayor que el máximo.")
             return
+
+        # Validación de rango de visualización
+        if self.s_hora_desde.value() > self.s_hora_hasta.value():
+            QMessageBox.critical(self, "Error de Rango",
+                                "La hora 'Desde' (i) no puede ser mayor que la hora 'Hasta' (j).")
+            return
+
+        # Validación de tiempo de simulación
+        if self.s_tiempo_simulacion.value() < self.s_hora_hasta.value():
+            QMessageBox.warning(self, "Advertencia",
+                               "El tiempo de simulación (X) es menor que el rango 'Hasta' (j).\n"
+                               "Es posible que no se generen todos los eventos esperados.")
 
         self.parametros = {
             'tiempo_entre_llegadas': self.s_tiempo_entre_llegadas.value(),
@@ -653,8 +766,69 @@ class ConfiguracionWindow(QDialog):
             'tiempo_consulta_min': self.s_cons_min.value(),
             'tiempo_consulta_max': self.s_cons_max.value(),
             'prob_retirarse': self.s_prob_retirarse.value(),
+            'tiempo_simulacion': self.s_tiempo_simulacion.value(),
+            'max_iteraciones': self.s_max_iteraciones.value(),
+            'k_100_200': self.s_k_100_200.value(),
+            'k_200_300': self.s_k_200_300.value(),
+            'k_300_plus': self.s_k_300_plus.value(),
+            'hora_desde': self.s_hora_desde.value(),
+            'hora_hasta': self.s_hora_hasta.value(),
         }
+
+        # Guardar configuración
+        self.guardar_configuracion()
         self.accept()
+
+    def guardar_configuracion(self):
+        """Guarda la configuración actual en un archivo JSON"""
+        try:
+            config = {
+                'tiempo_entre_llegadas': self.s_tiempo_entre_llegadas.value(),
+                'prob_pedir_libro': self.s_prob_pedir.value(),
+                'prob_devolver_libro': self.s_prob_devolver.value(),
+                'prob_consultar': self.s_prob_consultar.value(),
+                'tiempo_consulta_min': self.s_cons_min.value(),
+                'tiempo_consulta_max': self.s_cons_max.value(),
+                'prob_retirarse': self.s_prob_retirarse.value(),
+                'tiempo_simulacion': self.s_tiempo_simulacion.value(),
+                'max_iteraciones': self.s_max_iteraciones.value(),
+                'k_100_200': self.s_k_100_200.value(),
+                'k_200_300': self.s_k_200_300.value(),
+                'k_300_plus': self.s_k_300_plus.value(),
+                'hora_desde': self.s_hora_desde.value(),
+                'hora_hasta': self.s_hora_hasta.value(),
+            }
+            with open(self.CONFIG_FILE, 'w') as f:
+                json.dump(config, f, indent=2)
+        except Exception as e:
+            print(f"Error al guardar configuración: {e}")
+
+    def cargar_configuracion(self):
+        """Carga la configuración guardada desde el archivo JSON"""
+        if not os.path.exists(self.CONFIG_FILE):
+            return
+
+        try:
+            with open(self.CONFIG_FILE, 'r') as f:
+                config = json.load(f)
+
+            # Aplicar valores guardados
+            self.s_tiempo_entre_llegadas.setValue(config.get('tiempo_entre_llegadas', 4.0))
+            self.s_prob_pedir.setValue(config.get('prob_pedir_libro', 0.45))
+            self.s_prob_devolver.setValue(config.get('prob_devolver_libro', 0.45))
+            self.s_prob_consultar.setValue(config.get('prob_consultar', 0.10))
+            self.s_cons_min.setValue(config.get('tiempo_consulta_min', 2.0))
+            self.s_cons_max.setValue(config.get('tiempo_consulta_max', 5.0))
+            self.s_prob_retirarse.setValue(config.get('prob_retirarse', 0.60))
+            self.s_tiempo_simulacion.setValue(config.get('tiempo_simulacion', 480.0))
+            self.s_max_iteraciones.setValue(config.get('max_iteraciones', 100000))
+            self.s_k_100_200.setValue(config.get('k_100_200', 100))
+            self.s_k_200_300.setValue(config.get('k_200_300', 90))
+            self.s_k_300_plus.setValue(config.get('k_300_plus', 70))
+            self.s_hora_desde.setValue(config.get('hora_desde', 0.0))
+            self.s_hora_hasta.setValue(config.get('hora_hasta', 100000.0))
+        except Exception as e:
+            print(f"Error al cargar configuración: {e}")
 
 
 # ==================== INTERFAZ GRÁFICA PRINCIPAL ====================
@@ -763,7 +937,9 @@ class MainWindow(QMainWindow):
         config_dialog = ConfiguracionWindow(self)
         if config_dialog.exec_() == QDialog.Accepted:
             self.parametros_simulacion = config_dialog.parametros
-            self.lbl_status.setText(f"✅ Configuración cargada. Llegan cada {self.parametros_simulacion['tiempo_entre_llegadas']:.1f} min.")
+            self.lbl_status.setText(f"✅ Configuración cargada. T.sim: {self.parametros_simulacion['tiempo_simulacion']:.0f} min | "
+                                  f"Max iter: {self.parametros_simulacion['max_iteraciones']} | "
+                                  f"Rango: [{self.parametros_simulacion['hora_desde']:.0f}, {self.parametros_simulacion['hora_hasta']:.0f}]")
             self.set_botones_habilitados(True)
             self.reiniciar_tabla()
         else:
@@ -820,13 +996,22 @@ class MainWindow(QMainWindow):
         porcentaje_tiempo_cerrada = (self.simulacion.tiempo_biblioteca_cerrada_ac / 
                                      self.simulacion.tiempo_maximo) * 100 if self.simulacion.tiempo_maximo > 0 else 0
 
+        # Determinar razón de finalización
+        razon_finalizacion = ""
+        if self.simulacion.iteracion_actual >= self.simulacion.max_iteraciones:
+            razon_finalizacion = f"⚠️ Límite de iteraciones alcanzado: {self.simulacion.max_iteraciones}\n"
+        elif self.simulacion.reloj >= self.simulacion.tiempo_maximo:
+            razon_finalizacion = f"✅ Tiempo de simulación completado: {self.simulacion.tiempo_maximo:.2f} min\n"
+
         self.lbl_status.setText(f"✅ Simulación completa: {len(historial_filas)} eventos | "
                                 f"T. Sim: {self.simulacion.reloj:.2f} min | "
-                                f"% Rechazados: {porcentaje_rechazados:.2f}%")
+                                f"Iter: {self.simulacion.iteracion_actual}")
 
         QMessageBox.information(self, "Simulación Completa",
                                 f"✅ Simulación finalizada exitosamente\n\n"
+                                f"{razon_finalizacion}"
                                 f"📊 Eventos procesados: {len(historial_filas)}\n"
+                                f"🔄 Iteraciones ejecutadas: {self.simulacion.iteracion_actual}\n"
                                 f"⏱️ Tiempo simulado: {self.simulacion.reloj:.2f} min\n"
                                 f"--- MÉTRICAS ---\n"
                                 f"👥 Clientes generados: {total_clientes}\n"
@@ -855,8 +1040,43 @@ class MainWindow(QMainWindow):
     def poblar_tabla(self):
         if not self.historial_filas: return
 
+        # Filtrar filas según el rango de tiempo especificado
+        hora_desde = self.simulacion.hora_desde if self.simulacion else 0
+        hora_hasta = self.simulacion.hora_hasta if self.simulacion else float('inf')
+
+        filas_filtradas = [fila for fila in self.historial_filas
+                          if hora_desde <= fila['reloj'] <= hora_hasta]
+
+        if not filas_filtradas:
+            QMessageBox.warning(self, "Sin datos",
+                              f"No hay eventos en el rango de tiempo especificado:\n"
+                              f"Desde {hora_desde} hasta {hora_hasta} minutos.\n\n"
+                              f"Prueba ajustar los parámetros 'i' y 'j' en la configuración.")
+            return
+
+        # OPTIMIZACIÓN: Limitar cantidad de filas a mostrar para evitar congelamientos
+        MAX_FILAS_TABLA = 5000  # Reducido para mejor rendimiento
+        total_filas = len(filas_filtradas)
+
+        if total_filas > MAX_FILAS_TABLA:
+            # Mostrar advertencia
+            respuesta = QMessageBox.question(
+                self, "Demasiados eventos",
+                f"Se encontraron {total_filas:,} eventos en el rango especificado.\n\n"
+                f"Mostrar todos los eventos puede hacer que la aplicación se congele.\n"
+                f"Se mostrarán solo los primeros {MAX_FILAS_TABLA:,} eventos.\n\n"
+                f"💡 Para ver todos los datos, use la exportación a Excel.\n\n"
+                f"¿Desea continuar?\n\n"
+                f"Sugerencia: Ajuste los parámetros 'i' y 'j' para un rango más pequeño.",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            if respuesta == QMessageBox.No:
+                return
+
+            filas_filtradas = filas_filtradas[:MAX_FILAS_TABLA]
+
         todos_clientes_ids = set()
-        for fila in self.historial_filas[1:]: 
+        for fila in filas_filtradas:
             for cliente in fila['clientes']:
                 if cliente.estado != "RECHAZADO":
                     todos_clientes_ids.add(cliente.id)
@@ -864,14 +1084,14 @@ class MainWindow(QMainWindow):
 
         columnas_fijas = [
             "n°", "Evento", "Reloj",
-            "T.entre llegadas", "Próxima llegada", 
-            "RND obj", "Objetivo", 
+            "T.entre llegadas", "Próxima llegada",
+            "RND obj", "Objetivo",
             "RND búsq", "T.búsqueda (EXP)", "fin_búsq_emp1", "fin_búsq_emp2",
             "RND decisión", "Se retira?", "RND pág", "Páginas", "T.lectura (Euler)",
             "RND dev", "T.devolución", "fin_dev_emp1", "fin_dev_emp2",
             "RND cons", "T.consulta", "fin_cons",
             "Emp1", "AC at1", "AC oc1", "Emp2", "AC at2", "AC oc2",
-            "Cola", "AC perm", "AC leyendo"
+            "Estado Bib", "Leyendo", "Cola", "AC perm", "AC leyendo"
         ]
 
         columnas_clientes = []
@@ -882,103 +1102,118 @@ class MainWindow(QMainWindow):
 
         todas_columnas = columnas_fijas + columnas_clientes
 
-        self.tabla.setColumnCount(len(todas_columnas))
-        self.tabla.setHorizontalHeaderLabels(todas_columnas)
-        self.tabla.setRowCount(len(self.historial_filas))
+        # OPTIMIZACIÓN: Deshabilitar actualizaciones durante el llenado
+        self.tabla.setUpdatesEnabled(False)
+        self.tabla.setSortingEnabled(False)
 
-        header = self.tabla.horizontalHeader()
-        header.setDefaultSectionSize(85)
-        header.setSectionResizeMode(QHeaderView.Interactive)
+        try:
+            self.tabla.setColumnCount(len(todas_columnas))
+            self.tabla.setHorizontalHeaderLabels(todas_columnas)
+            self.tabla.setRowCount(len(filas_filtradas))
 
-        for row, fila in enumerate(self.historial_filas):
-            self.agregar_fila(row, fila, clientes_ordenados)
+            header = self.tabla.horizontalHeader()
+            header.setDefaultSectionSize(85)
+            header.setSectionResizeMode(QHeaderView.Interactive)
+
+            # Mostrar progreso para tablas grandes
+            if len(filas_filtradas) > 1000:
+                self.lbl_status.setText(f"⏳ Poblando tabla con {len(filas_filtradas):,} filas...")
+                QApplication.processEvents()
+
+            for row, fila in enumerate(filas_filtradas):
+                self.agregar_fila(row, fila, clientes_ordenados)
+
+                # Actualizar progreso cada 500 filas
+                if len(filas_filtradas) > 1000 and row % 500 == 0:
+                    progreso = int((row / len(filas_filtradas)) * 100)
+                    self.lbl_status.setText(f"⏳ Poblando tabla: {progreso}% ({row:,}/{len(filas_filtradas):,})")
+                    QApplication.processEvents()
+
+        finally:
+            # Rehabilitar actualizaciones
+            self.tabla.setUpdatesEnabled(True)
+            self.tabla.setSortingEnabled(True)
+
+            if total_filas > MAX_FILAS_TABLA:
+                self.lbl_status.setText(f"⚠️ Mostrando {len(filas_filtradas):,} de {total_filas:,} eventos")
+            else:
+                self.lbl_status.setText(f"✅ Tabla poblada: {len(filas_filtradas):,} eventos")
 
     def agregar_fila(self, row: int, datos: dict, clientes_ordenados: List[int]):
+        # OPTIMIZACIÓN: Pre-cache de objetos de color comunes para evitar recrearlos
+        if not hasattr(self, '_cached_colors'):
+            self._cached_colors = {
+                'row_even': QColor(249, 249, 249),
+                'row_odd': QColor(255, 255, 255),
+                'init': QColor(230, 230, 250),
+                'llegada': QColor(200, 230, 201),
+                'fin_atencion': QColor(255, 224, 178),
+                'fin_lectura': QColor(187, 222, 251),
+                'rechazado': QColor(255, 199, 206),
+                'red': QColor(255, 0, 0)
+            }
+            self._cached_font_bold = QFont("Arial", 9, QFont.Bold)
+
         def fmt(val):
             if val == '' or val is None: return ''
             if isinstance(val, float): return f"{val:.2f}"
             return str(val)
 
-        tiempos_proximos = []
-        prox_llegada_val = datos.get('proxima_llegada')
-        if isinstance(prox_llegada_val, (int, float)) and prox_llegada_val > datos['reloj']:
-            tiempos_proximos.append(prox_llegada_val)
-        for key in ['fin_atencion_alq1', 'fin_atencion_alq2', 'fin_atencion_dev1', 'fin_atencion_dev2', 'fin_atencion_cons']:
-            t_fin = datos.get(key)
-            if isinstance(t_fin, (int, float)) and t_fin > datos['reloj']:
-                tiempos_proximos.append(t_fin)
-        for cliente in datos['clientes']:
-            if cliente.estado == "Leyendo" and cliente.fin_lectura is not None and cliente.fin_lectura > datos['reloj']:
-                tiempos_proximos.append(cliente.fin_lectura)
-
-        min_tiempo_proximo = min(tiempos_proximos) if tiempos_proximos else None
-
-        COL_PROX_LLEGADA = 4
-        COL_FIN_BUSQ_EMP1 = 9
-        COL_FIN_BUSQ_EMP2 = 10
-        COL_FIN_DEV_EMP1 = 18
-        COL_FIN_DEV_EMP2 = 19
-        COL_FIN_CONS = 22
-        
         es_llegada = datos['evento'].startswith(TipoEvento.LLEGADA_CLIENTE.value)
         es_rechazado = datos['objetivo'] == 'RECHAZADO'
         mostrar_rnd_obj = es_llegada and not es_rechazado
-        
+
+        # Preparar valores
         valores = [
             datos['n'], datos['evento'], fmt(datos['reloj']), fmt(datos['tiempo_entre_llegadas']), fmt(datos['proxima_llegada']),
-            fmt(datos['rnd_objetivo']) if mostrar_rnd_obj else '', datos['objetivo'] if es_llegada else '',         
+            fmt(datos['rnd_objetivo']) if mostrar_rnd_obj else '', datos['objetivo'] if es_llegada else '',
             fmt(datos['rnd_busqueda']), fmt(datos['tiempo_busqueda']), fmt(datos['fin_atencion_alq1']), fmt(datos['fin_atencion_alq2']),
             fmt(datos['rnd_decision']), datos['se_retira'], fmt(datos['rnd_paginas']), datos['paginas'], fmt(datos['tiempo_lectura']),
             fmt(datos['rnd_devolucion']), fmt(datos['tiempo_devolucion']), fmt(datos['fin_atencion_dev1']), fmt(datos['fin_atencion_dev2']),
             fmt(datos['rnd_consulta']), fmt(datos['tiempo_consulta']), fmt(datos['fin_atencion_cons']),
-            datos['empleado1_estado'], fmt(datos['empleado1_ac_atencion']), fmt(datos['empleado1_ac_ocioso']), 
-            datos['empleado2_estado'], fmt(datos['empleado2_ac_atencion']), fmt(datos['empleado2_ac_ocioso']), 
-            str(datos['cola']), fmt(datos['ac_tiempo_permanencia']), str(datos['ac_clientes_leyendo']) 
+            datos['empleado1_estado'], fmt(datos['empleado1_ac_atencion']), fmt(datos['empleado1_ac_ocioso']),
+            datos['empleado2_estado'], fmt(datos['empleado2_ac_atencion']), fmt(datos['empleado2_ac_ocioso']),
+            datos['estado_biblioteca'], str(datos.get('personas_leyendo', 0)),
+            str(datos['cola']), fmt(datos['ac_tiempo_permanencia']), str(datos['ac_clientes_leyendo'])
         ]
 
-        map_tiempos_fijos = {
-            COL_PROX_LLEGADA: datos.get('proxima_llegada'), COL_FIN_BUSQ_EMP1: datos.get('fin_atencion_alq1'),
-            COL_FIN_BUSQ_EMP2: datos.get('fin_atencion_alq2'), COL_FIN_DEV_EMP1: datos.get('fin_atencion_dev1'),
-            COL_FIN_DEV_EMP2: datos.get('fin_atencion_dev2'), COL_FIN_CONS: datos.get('fin_atencion_cons'),
-        }
-        
         col_offset = len(valores)
-        # INICIO CORRECCIÓN DEL NAME ERROR: DEFINIR clientes_dict AQUÍ
-        clientes_dict = {c.id: c for c in datos['clientes']} 
+        clientes_dict = {c.id: c for c in datos['clientes']}
 
         for cid in clientes_ordenados:
             if cid in clientes_dict:
                 c = clientes_dict[cid]
                 tiempo_at = next((t for t in [c.tiempo_busqueda, c.tiempo_devolucion, c.tiempo_consulta] if t > 0), '')
                 valores.extend([c.estado, fmt(c.hora_llegada), fmt(tiempo_at) if tiempo_at else '', fmt(c.fin_lectura) if c.fin_lectura else ''])
-                if c.estado == "Leyendo" and c.fin_lectura is not None:
-                    map_tiempos_fijos[col_offset + 3] = c.fin_lectura
             else:
                 valores.extend(['', '', '', ''])
             col_offset += 4
+
+        # OPTIMIZACIÓN CRÍTICA: Minimizar el styling por celda
+        # Solo coloreamos el evento y los rechazados, sin revisar tiempos próximos
+        color_fondo_base = self._cached_colors['row_even'] if row % 2 == 0 else self._cached_colors['row_odd']
 
         for col, valor in enumerate(valores):
             item = QTableWidgetItem(str(valor))
             item.setTextAlignment(Qt.AlignCenter)
 
-            color_fondo = QColor(249, 249, 249) if row % 2 == 0 else QColor(255, 255, 255)
-            
-            if col == 1:
-                if 'inicializacion' in str(valor).lower(): color_fondo = QColor(230, 230, 250) 
-                elif 'llegada' in str(valor).lower(): color_fondo = QColor(200, 230, 201)
-                elif 'fin_atencion' in str(valor).lower(): color_fondo = QColor(255, 224, 178)
-                elif 'fin_lectura' in str(valor).lower(): color_fondo = QColor(187, 222, 251)
+            color_fondo = color_fondo_base
 
-            if es_llegada and es_rechazado and col == 6:
-                color_fondo = QColor(255, 199, 206)
-            
+            # Solo aplicar colores especiales a columnas críticas
+            if col == 1:  # Columna evento
+                valor_lower = str(valor).lower()
+                if 'inicializacion' in valor_lower:
+                    color_fondo = self._cached_colors['init']
+                elif 'llegada' in valor_lower:
+                    color_fondo = self._cached_colors['llegada']
+                elif 'fin_atencion' in valor_lower:
+                    color_fondo = self._cached_colors['fin_atencion']
+                elif 'fin_lectura' in valor_lower:
+                    color_fondo = self._cached_colors['fin_lectura']
+            elif es_llegada and es_rechazado and col == 6:  # Columna objetivo cuando es rechazado
+                color_fondo = self._cached_colors['rechazado']
+
             item.setBackground(color_fondo)
-
-            tiempo_columna = map_tiempos_fijos.get(col)
-            if min_tiempo_proximo is not None and tiempo_columna == min_tiempo_proximo and tiempo_columna > datos['reloj']:
-                 item.setForeground(QColor(255, 0, 0))
-                 item.setFont(QFont("Arial", 9, QFont.Bold))
-
             self.tabla.setItem(row, col, item)
 
     def exportar_excel(self):
@@ -996,11 +1231,12 @@ class MainWindow(QMainWindow):
             wb = openpyxl.Workbook()
             ws = wb.active
             ws.title = "Simulación"
-            
+
             header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
             header_font = ExcelFont(bold=True, color="FFFFFF")
             center_align = Alignment(horizontal="center", vertical="center")
 
+            # Exportar tabla principal de simulación
             for col in range(self.tabla.columnCount()):
                 cell = ws.cell(row=1, column=col + 1)
                 cell.value = self.tabla.horizontalHeaderItem(col).text()
@@ -1016,8 +1252,50 @@ class MainWindow(QMainWindow):
                         cell.value = item.text()
                         cell.alignment = center_align
 
+            # Crear hoja de integración numérica si hay datos
+            if self.simulacion and self.simulacion.historial_integraciones:
+                ws_integracion = wb.create_sheet(title="Integración Numérica")
+
+                header_integracion = ["Cliente ID", "Páginas Objetivo", "K", "h", "Paso", "t (min)", "P(t) (páginas)", "dP/dt", "Δt", "ΔP"]
+                for col, header_text in enumerate(header_integracion, 1):
+                    cell = ws_integracion.cell(row=1, column=col)
+                    cell.value = header_text
+                    cell.fill = header_fill
+                    cell.font = header_font
+                    cell.alignment = center_align
+
+                row_idx = 2
+                for integracion in self.simulacion.historial_integraciones:
+                    cliente_id = integracion['cliente_id']
+                    paginas_obj = integracion['paginas_objetivo']
+                    K = integracion['K']
+                    h = integracion['h']
+
+                    for paso_num, paso in enumerate(integracion['pasos'], 1):
+                        ws_integracion.cell(row=row_idx, column=1).value = cliente_id
+                        ws_integracion.cell(row=row_idx, column=2).value = paginas_obj
+                        ws_integracion.cell(row=row_idx, column=3).value = K
+                        ws_integracion.cell(row=row_idx, column=4).value = h
+                        ws_integracion.cell(row=row_idx, column=5).value = paso_num
+                        ws_integracion.cell(row=row_idx, column=6).value = round(paso['t'], 4)
+                        ws_integracion.cell(row=row_idx, column=7).value = round(paso['p'], 4)
+                        ws_integracion.cell(row=row_idx, column=8).value = round(paso['derivada'], 4)
+                        ws_integracion.cell(row=row_idx, column=9).value = h
+                        ws_integracion.cell(row=row_idx, column=10).value = round(h * paso['derivada'], 4)
+
+                        for col in range(1, 11):
+                            ws_integracion.cell(row=row_idx, column=col).alignment = center_align
+
+                        row_idx += 1
+
+                    # Fila en blanco entre clientes
+                    row_idx += 1
+
             wb.save(filename)
-            QMessageBox.information(self, "Éxito", f"✅ Archivo exportado correctamente:\n{filename}")
+            msg = f"✅ Archivo exportado correctamente:\n{filename}"
+            if self.simulacion and self.simulacion.historial_integraciones:
+                msg += f"\n\n📊 Se exportaron {len(self.simulacion.historial_integraciones)} integraciones numéricas"
+            QMessageBox.information(self, "Éxito", msg)
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error al exportar:\n\n{str(e)}")

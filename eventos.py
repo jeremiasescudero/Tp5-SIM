@@ -5,7 +5,7 @@ from enum import Enum
 
 class TipoEvento(Enum):
     """Tipos de eventos en la simulación"""
-    LLEGADA_PERSONA = "llegada_alquiler"
+    LLEGADA_PERSONA = "llegada_cliente"
     FIN_ATENCION = "fin_atencion_cliente"
     FIN_LECTURA = "fin_lectura"
     FIN_SIMULACION = "Fin Simulación"
