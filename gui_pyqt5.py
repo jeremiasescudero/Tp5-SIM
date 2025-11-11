@@ -897,11 +897,11 @@ class MainWindow(QMainWindow):
 
         clientes_ordenados = sorted(list(todos_clientes_ids))
 
-        # COLUMNAS FIJAS - Actualizadas según la especificación
+        # COLUMNAS FIJAS - ESTADO ELIMINADO
         columnas_fijas = [
             "n°", "Evento", "Reloj",
             "T.entre llegadas", "Próxima llegada", 
-            "RND obj", "Objetivo", # <--- REORDENADO y RND llegada ELIMINADO
+            "RND obj", "Objetivo", 
             # Pedir libro (búsqueda exponencial)
             "RND búsq", "T.búsqueda (EXP)", "fin_búsq_emp1", "fin_búsq_emp2",
             # Decisión de leer
@@ -912,8 +912,8 @@ class MainWindow(QMainWindow):
             "RND cons", "T.consulta", "fin_cons",
             # Empleados
             "Emp1", "AC at1", "AC oc1", "Emp2", "AC at2", "AC oc2",
-            # Biblioteca
-            "Estado", "Cola", "AC perm", "AC leyendo"
+            # Biblioteca (Estado Eliminado)
+            "Cola", "AC perm", "AC leyendo"
         ]
 
         # COLUMNAS DINÁMICAS POR CADA CLIENTE
@@ -972,7 +972,7 @@ class MainWindow(QMainWindow):
 
         min_tiempo_proximo = min(tiempos_proximos) if tiempos_proximos else None
 
-        # Definir índices de columna para el resaltado
+        # Definir índices de columna para el resaltado (AJUSTADOS)
         COL_PROX_LLEGADA = 4
         COL_FIN_BUSQ_EMP1 = 9
         COL_FIN_BUSQ_EMP2 = 10
@@ -985,7 +985,7 @@ class MainWindow(QMainWindow):
         es_rechazado = datos['objetivo'] == 'RECHAZADO'
         mostrar_rnd_obj = es_llegada and not es_rechazado
         
-        # Valores fijos - orden según las nuevas columnas
+        # Valores fijos - orden según las nuevas columnas (ESTADO ELIMINADO, ÍNDICES AJUSTADOS)
         valores = [
             datos['n'],                                     # 0 n°
             datos['evento'],                                # 1 Evento
@@ -1025,14 +1025,15 @@ class MainWindow(QMainWindow):
             datos['empleado2_estado'],                      # 26 Emp2
             fmt(datos['empleado2_ac_atencion']),            # 27 AC at2
             fmt(datos['empleado2_ac_ocioso']),              # 28 AC oc2
-            # Biblioteca
-            datos['estado_biblioteca'],                     # 29 Estado
-            str(datos['cola']),                             # 30 Cola
-            fmt(datos['ac_tiempo_permanencia']),            # 31 AC perm
-            str(datos['ac_clientes_leyendo'])               # 32 AC leyendo
+            # Biblioteca (Estado Eliminado, Índices Recorridos)
+            str(datos['cola']),                             # 29 Cola (Antes 30)
+            fmt(datos['ac_tiempo_permanencia']),            # 30 AC perm (Antes 31)
+            str(datos['ac_clientes_leyendo'])               # 31 AC leyendo (Antes 32)
         ]
 
         # Mapeo de columna fija a tiempo de evento (para chequeo de resaltado)
+        # NOTA: Los índices de las columnas de tiempo de fin (9, 10, 18, 19, 22) no cambiaron
+        # porque la columna eliminada (Estado, índice 29) estaba después de los empleados.
         map_tiempos_fijos = {
             COL_PROX_LLEGADA: datos.get('proxima_llegada'),
             COL_FIN_BUSQ_EMP1: datos.get('fin_atencion_alq1'),
