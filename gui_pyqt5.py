@@ -1,6 +1,12 @@
 """
 Aplicación PyQt5 para simulación de biblioteca con tabla de eventos
-... (Resto del código idéntico hasta Simulacion._capturar_estado)
+CON INTERFAZ DE CONFIGURACIÓN MÍNIMA Y PARAMETRIZADA.
+Incluye:
+1. Parametrización de los 4 datos requeridos (llegadas, objetivos, consulta, retiro).
+2. Uso de copia profunda para corregir el bug de los estados de los clientes en la tabla.
+3. Eliminación de la columna "Estado" y actualización de índices.
+4. Resaltado en rojo del próximo evento.
+5. CORRECCIÓN DEL ERROR: NameError: name 'clientes_dict' is not defined.
 """
 import sys
 import random
@@ -9,13 +15,14 @@ import math
 from enum import Enum
 from dataclasses import dataclass
 from typing import List, Optional, Dict
-import copy # AGREGADO
+import copy 
 
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
     QLabel, QSpinBox, QDoubleSpinBox, QGroupBox, QFormLayout,
-    QProgressBar, QMessageBox, QGridLayout, QScrollArea, QFileDialog
+    QProgressBar, QMessageBox, QGridLayout, QScrollArea, QFileDialog,
+    QDialog, QLineEdit, QTabWidget
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QColor, QFont
@@ -29,7 +36,7 @@ except ImportError:
 
 
 # ==================== INTEGRADOR DE EULER ====================
-# ... (Clase IntegradorEuler - Sin Cambios)
+
 class IntegradorEuler:
     """INTEGRACIÓN NUMÉRICA POR MÉTODO DE EULER"""
     def __init__(self, h: float, K: int, p_inicial: float = 0):
@@ -50,7 +57,7 @@ class IntegradorEuler:
 
 
 # ==================== ENUMS Y DATACLASSES ====================
-# ... (Clases TipoEvento, TipoObjetivo, EstadoEmpleado, Evento, Cliente, Empleado - Sin Cambios)
+
 class TipoEvento(Enum):
     INICIALIZACION = "inicializacion"
     LLEGADA_CLIENTE = "llegada_alquiler"
@@ -123,21 +130,25 @@ class Empleado:
 
 
 # ==================== MOTOR DE SIMULACIÓN ====================
-# ... (Clase Simulacion: __init__, determinar_K, generar_objetivo, generar_tiempo_consulta, etc. - Sin Cambios)
+
 class Simulacion:
     """Motor de simulación de eventos discretos"""
 
-    def __init__(self):
-        self.tiempo_entre_llegadas = 4.0
-        self.prob_pedir_libro = 0.45
-        self.prob_devolver_libro = 0.45
-        self.prob_consultar = 0.10
-        self.tiempo_consulta_min = 2.0
-        self.tiempo_consulta_max = 5.0
+    def __init__(self, parametros: dict): # Acepta parámetros
+        
+        # --- PARÁMETROS CONFIGURABLES ---
+        self.tiempo_entre_llegadas = parametros.get('tiempo_entre_llegadas', 4.0)
+        self.prob_pedir_libro = parametros.get('prob_pedir_libro', 0.45)
+        self.prob_devolver_libro = parametros.get('prob_devolver_libro', 0.45)
+        self.prob_consultar = parametros.get('prob_consultar', 0.10)
+        self.tiempo_consulta_min = parametros.get('tiempo_consulta_min', 2.0)
+        self.tiempo_consulta_max = parametros.get('tiempo_consulta_max', 5.0)
+        self.prob_retirarse = parametros.get('prob_retirarse', 0.60)
+        
+        # --- PARÁMETROS FIJOS (VALORES PREDETERMINADOS) ---
         self.media_busqueda = 6.0
         self.tiempo_devolucion_min = 1.5
         self.tiempo_devolucion_max = 2.5
-        self.prob_retirarse = 0.60
         self.paginas_min = 100
         self.paginas_max = 350
         self.K_100_200 = 100
@@ -146,6 +157,8 @@ class Simulacion:
         self.capacidad_maxima = 20
         self.tiempo_maximo = 480.0
         self.h_euler = 0.1
+
+        # Estado de la simulación
         self.reloj = 0.0
         self.eventos = []
         self.clientes_activos: List[Cliente] = []
@@ -155,6 +168,8 @@ class Simulacion:
         self.contador_clientes = 0
         self.numero_fila = 0
         self.ultimo_reloj = 0.0
+
+        # Acumuladores
         self.ac_tiempo_permanencia = 0.0
         self.total_clientes_atendidos = 0
         self.total_clientes_leyendo = 0
@@ -163,6 +178,7 @@ class Simulacion:
         self.biblioteca_cerrada = False
         self.tiempo_biblioteca_cerrada_ac = 0.0
         self.tiempo_inicio_cerrada: Optional[float] = None
+
         self.historial_filas: List[dict] = []
 
     def determinar_K(self, num_paginas: int) -> int:
@@ -189,7 +205,8 @@ class Simulacion:
 
     def generar_tiempo_busqueda(self) -> tuple:
         rnd = random.random()
-        tiempo = -self.media_busqueda * math.log(1 - rnd)
+        media = self.media_busqueda if self.media_busqueda > 0 else 1e-6
+        tiempo = -media * math.log(1 - rnd)
         return tiempo, rnd
 
     def generar_tiempo_devolucion(self) -> tuple:
@@ -399,7 +416,7 @@ class Simulacion:
         evento = self.proximo_evento()
         if not evento or evento.tipo == TipoEvento.FIN_SIMULACION:
             if self.biblioteca_cerrada and self.tiempo_inicio_cerrada is not None:
-                 self.tiempo_biblioteca_cerrada_ac += self.tiempo_maximo - self.reloj
+                self.tiempo_biblioteca_cerrada_ac += self.tiempo_maximo - self.reloj
             
             return None
 
@@ -436,11 +453,9 @@ class Simulacion:
         proximos = sorted(self.eventos, key=lambda e: e.tiempo)[:3]
         cliente_actual = evento.datos.get('cliente')
 
-        # --- MODIFICACIÓN CLAVE AQUÍ ---
         evento_str = evento.tipo.value
         if cliente_actual and evento.tipo != TipoEvento.INICIALIZACION:
-             # Agregar ID del cliente al tipo de evento
-             evento_str = f"{evento.tipo.value} C{cliente_actual.id}"
+            evento_str = f"{evento.tipo.value} C{cliente_actual.id}"
 
 
         rnd_busqueda = cliente_actual.rnd_tiempo_busqueda if cliente_actual and cliente_actual.objetivo == TipoObjetivo.PEDIR_LIBRO and cliente_actual.rnd_tiempo_busqueda > 0 else ''
@@ -459,7 +474,7 @@ class Simulacion:
 
         return {
             'n': self.numero_fila,
-            'evento': evento_str, # <-- USANDO EL NUEVO STRING
+            'evento': evento_str,
             'reloj': self.reloj,
             'tiempo_entre_llegadas': self.tiempo_entre_llegadas if evento.tipo == TipoEvento.LLEGADA_CLIENTE or evento.tipo == TipoEvento.INICIALIZACION else '',
             'proxima_llegada': proxima_llegada if evento.tipo != TipoEvento.INICIALIZACION else self.tiempo_entre_llegadas,
@@ -507,7 +522,7 @@ class SimulacionThread(QThread):
 
     def run(self):
         try:
-            self.simulacion.iniciar() # La inicialización ya genera la primera fila (0)
+            self.simulacion.iniciar() 
             contador = 0
 
             while True:
@@ -516,7 +531,7 @@ class SimulacionThread(QThread):
                     break
 
                 contador += 1
-                if contador % 10 == 0:  # Actualizar progreso cada 10 eventos
+                if contador % 10 == 0:
                     self.progress.emit(contador)
 
             self.finished.emit(self.simulacion.historial_filas)
@@ -525,95 +540,198 @@ class SimulacionThread(QThread):
             self.error.emit(str(e))
 
 
-# ==================== INTERFAZ GRÁFICA ====================
+# ==================== VENTANA DE CONFIGURACIÓN (MÍNIMA) ====================
+
+class ConfiguracionWindow(QDialog):
+    """Ventana para configurar los parámetros esenciales de la simulación."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("⚙️ Configuración de Parámetros Esenciales")
+        self.setGeometry(100, 100, 700, 500)
+        self.parametros = None
+
+        main_layout = QVBoxLayout()
+        self.setLayout(main_layout)
+
+        tabs = QTabWidget()
+        tabs.addTab(self.crear_tab_parametros(), "Parámetros Esenciales")
+        tabs.addTab(self.crear_tab_fijos(), "Parámetros Fijos (Enunciado)")
+        main_layout.addWidget(tabs)
+
+        btn_iniciar = QPushButton("🚀 Iniciar Simulación con Parámetros")
+        btn_iniciar.setStyleSheet("background-color: #2196F3; color: white; padding: 10px; font-size: 12pt; font-weight: bold; border-radius: 5px;")
+        btn_iniciar.clicked.connect(self.aceptar)
+        main_layout.addWidget(btn_iniciar)
+
+    def crear_tab_parametros(self):
+        widget = QWidget()
+        layout = QFormLayout()
+        widget.setLayout(layout)
+        
+        # 1. Frecuencia de Llegada (Default: 4 min)
+        group_llegadas = QGroupBox("1. Frecuencia de Llegada")
+        group_llegadas.setLayout(QFormLayout())
+        self.s_tiempo_entre_llegadas = QDoubleSpinBox(value=4.0, decimals=1, minimum=0.1, maximum=30.0, singleStep=0.5)
+        group_llegadas.layout().addRow("Tiempo Entre Llegadas (min):", self.s_tiempo_entre_llegadas)
+        layout.addRow(group_llegadas)
+
+        # 2. Probabilidades de Objetivo (Default: 45%, 45%, 10%)
+        group_objetivo = QGroupBox("2. Probabilidades de Objetivo (Suma debe ser 1.0)")
+        group_objetivo.setLayout(QFormLayout())
+        self.s_prob_pedir = QDoubleSpinBox(value=0.45, decimals=2, minimum=0.0, maximum=1.0, singleStep=0.01)
+        self.s_prob_devolver = QDoubleSpinBox(value=0.45, decimals=2, minimum=0.0, maximum=1.0, singleStep=0.01)
+        self.s_prob_consultar = QDoubleSpinBox(value=0.10, decimals=2, minimum=0.0, maximum=1.0, singleStep=0.01)
+        group_objetivo.layout().addRow("P(Pedir libro):", self.s_prob_pedir)
+        group_objetivo.layout().addRow("P(Devolver libro):", self.s_prob_devolver)
+        group_objetivo.layout().addRow("P(Consultar):", self.s_prob_consultar)
+        layout.addRow(group_objetivo)
+        
+        # 3. Tiempos de Consulta (Default: 2 y 5 min)
+        group_consulta = QGroupBox("3. Tiempo de Consulta (U[Min, Max])")
+        group_consulta.setLayout(QFormLayout())
+        self.s_cons_min = QDoubleSpinBox(value=2.0, decimals=1, minimum=0.1, maximum=10.0, singleStep=0.1)
+        self.s_cons_max = QDoubleSpinBox(value=5.0, decimals=1, minimum=0.1, maximum=10.0, singleStep=0.1)
+        group_consulta.layout().addRow("Consulta Min (min):", self.s_cons_min)
+        group_consulta.layout().addRow("Consulta Max (min):", self.s_cons_max)
+        layout.addRow(group_consulta)
+
+        # 4. Decisión de Lectura (Default: 60% retira)
+        group_lectura_decision = QGroupBox("4. Decisión de Retirarse/Leer")
+        group_lectura_decision.setLayout(QFormLayout())
+        self.s_prob_retirarse = QDoubleSpinBox(value=0.60, decimals=2, minimum=0.0, maximum=1.0, singleStep=0.01)
+        group_lectura_decision.layout().addRow("P(Se retira después de pedir):", self.s_prob_retirarse)
+        layout.addRow(group_lectura_decision)
+        
+        return widget
+    
+    def crear_tab_fijos(self):
+        widget = QWidget()
+        layout = QFormLayout()
+        widget.setLayout(layout)
+
+        group_fijos = QGroupBox("Parámetros Fijos (No Parametrizables por Requerimiento)")
+        group_fijos.setStyleSheet("QGroupBox { font-style: italic; } QLabel { color: #6c757d; }")
+        
+        fixed_layout = QFormLayout()
+        fixed_layout.addRow("T. Búsqueda (Media EXP):", QLabel("6.0 min"))
+        fixed_layout.addRow("T. Devolución (U[Min, Max]):", QLabel("U[1.5, 2.5] min"))
+        fixed_layout.addRow("Páginas (U[Min, Max]):", QLabel("U[100, 350]"))
+        fixed_layout.addRow("Constante K [100-200 pág]:", QLabel("100"))
+        fixed_layout.addRow("Constante K [201-300 pág]:", QLabel("90"))
+        fixed_layout.addRow("Constante K [> 300 pág]:", QLabel("70"))
+        fixed_layout.addRow("Capacidad Máxima:", QLabel("20 personas"))
+        fixed_layout.addRow("T. Simulación Máximo:", QLabel("480.0 min"))
+        
+        group_fijos.setLayout(fixed_layout)
+        layout.addRow(group_fijos)
+        return widget
+
+
+    def aceptar(self):
+        """Valida y guarda los parámetros antes de cerrar."""
+        p_pedir = self.s_prob_pedir.value()
+        p_devolver = self.s_prob_devolver.value()
+        p_consultar = self.s_prob_consultar.value()
+
+        # Validación de la suma de probabilidades
+        if not math.isclose(p_pedir + p_devolver + p_consultar, 1.0, abs_tol=0.001):
+            QMessageBox.critical(self, "Error de Probabilidad", 
+                                "La suma de las probabilidades de objetivo (Pedir, Devolver, Consultar) debe ser 1.0.")
+            return
+        
+        # Validación de rangos
+        if self.s_cons_min.value() > self.s_cons_max.value():
+            QMessageBox.critical(self, "Error de Rango", 
+                                "El valor mínimo de consulta no puede ser mayor que el máximo.")
+            return
+
+        self.parametros = {
+            'tiempo_entre_llegadas': self.s_tiempo_entre_llegadas.value(),
+            'prob_pedir_libro': p_pedir,
+            'prob_devolver_libro': p_devolver,
+            'prob_consultar': p_consultar,
+            'tiempo_consulta_min': self.s_cons_min.value(),
+            'tiempo_consulta_max': self.s_cons_max.value(),
+            'prob_retirarse': self.s_prob_retirarse.value(),
+        }
+        self.accept()
+
+
+# ==================== INTERFAZ GRÁFICA PRINCIPAL ====================
 
 class MainWindow(QMainWindow):
     """Ventana principal de la aplicación"""
 
     def __init__(self):
         super().__init__()
-        self.simulacion = None
+        self.simulacion: Optional[Simulacion] = None
         self.historial_filas = []
         self.thread = None
+        self.parametros_simulacion = None 
 
         self.init_ui()
+        # Inicia la ventana de configuración inmediatamente al arrancar
+        self.mostrar_configuracion() 
 
     def init_ui(self):
         """Inicializa la interfaz"""
         self.setWindowTitle("Simulación de Biblioteca - Sistema de Eventos Discretos con Método de Euler")
         self.setGeometry(50, 50, 1800, 950)
 
-        # Widget central
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-
-        # Layout principal
         main_layout = QVBoxLayout()
         central_widget.setLayout(main_layout)
 
-        # Título
         title = QLabel("🏛️ SIMULACIÓN DE BIBLIOTECA - EVENTOS DISCRETOS + INTEGRACIÓN DE EULER")
         title.setFont(QFont("Arial", 16, QFont.Bold))
         title.setAlignment(Qt.AlignCenter)
         title.setStyleSheet("background-color: #4472C4; color: white; padding: 15px; border-radius: 5px;")
         main_layout.addWidget(title)
 
-        # Info sobre Euler
         info_euler = QLabel("📐 Integración Numérica: dP/dt = K/5 (Método de Euler para calcular tiempo de lectura)")
         info_euler.setFont(QFont("Arial", 10))
         info_euler.setAlignment(Qt.AlignCenter)
         info_euler.setStyleSheet("background-color: #fff3cd; padding: 8px; border-radius: 3px; color: #856404;")
         main_layout.addWidget(info_euler)
 
-        # Panel de control
-        control_panel = self.crear_panel_control()
-        main_layout.addWidget(control_panel)
+        self.control_panel = self.crear_panel_control()
+        main_layout.addWidget(self.control_panel)
 
-        # Scroll para la tabla
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
         scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
 
         self.tabla = QTableWidget()
-        self.tabla.setStyleSheet("""
-            QTableWidget {
-                gridline-color: #d0d0d0;
-                font-size: 9pt;
-                background-color: white;
-            }
-            QTableWidget::item {
-                padding: 4px;
-            }
-            QHeaderView::section {
-                background-color: #4472C4;
-                color: white;
-                font-weight: bold;
-                padding: 6px;
-                border: 1px solid #2a52a4;
-            }
-            QTableWidget::item:alternate {
-                background-color: #f9f9f9;
-            }
-        """)
         self.tabla.setAlternatingRowColors(True)
+        self.tabla.setStyleSheet("""
+            QTableWidget { gridline-color: #d0d0d0; font-size: 9pt; background-color: white; }
+            QHeaderView::section { background-color: #4472C4; color: white; font-weight: bold; padding: 6px; border: 1px solid #2a52a4; }
+            QTableWidget::item:alternate { background-color: #f9f9f9; }
+        """)
 
         scroll.setWidget(self.tabla)
         main_layout.addWidget(scroll)
 
-        # Barra de progreso
         self.progress_bar = QProgressBar()
         self.progress_bar.setStyleSheet("QProgressBar { border: 2px solid #ccc; border-radius: 5px; text-align: center; } QProgressBar::chunk { background-color: #4CAF50; }")
         self.progress_bar.setVisible(False)
         main_layout.addWidget(self.progress_bar)
 
-        # Labels de estado
         status_layout = QHBoxLayout()
-        self.lbl_status = QLabel("⏰ Esperando...")
+        self.lbl_status = QLabel("⏰ Esperando configuración...")
         self.lbl_status.setFont(QFont("Arial", 10, QFont.Bold))
         status_layout.addWidget(self.lbl_status)
         status_layout.addStretch()
         main_layout.addLayout(status_layout)
+        
+        self.set_botones_habilitados(False)
+
+    def set_botones_habilitados(self, enabled: bool):
+        self.btn_ejecutar.setEnabled(enabled)
+        self.btn_exportar.setEnabled(False)
+        self.btn_reiniciar.setEnabled(True)
 
     def crear_panel_control(self) -> QGroupBox:
         """Crea el panel de control"""
@@ -621,41 +739,56 @@ class MainWindow(QMainWindow):
         group.setFont(QFont("Arial", 11, QFont.Bold))
         layout = QHBoxLayout()
 
-        # Botón ejecutar
         self.btn_ejecutar = QPushButton("▶ Ejecutar Simulación Completa")
         self.btn_ejecutar.setStyleSheet("background-color: #4CAF50; color: white; padding: 12px 24px; font-size: 13pt; font-weight: bold; border-radius: 5px;")
         self.btn_ejecutar.clicked.connect(self.ejecutar_simulacion)
         layout.addWidget(self.btn_ejecutar)
 
-        # Botón exportar
         self.btn_exportar = QPushButton("📊 Exportar a Excel")
         self.btn_exportar.setStyleSheet("background-color: #2196F3; color: white; padding: 12px 24px; font-size: 13pt; font-weight: bold; border-radius: 5px;")
         self.btn_exportar.clicked.connect(self.exportar_excel)
-        self.btn_exportar.setEnabled(False)
         layout.addWidget(self.btn_exportar)
 
-        # Botón reiniciar
-        self.btn_reiniciar = QPushButton("🔄 Nueva Simulación")
+        self.btn_reiniciar = QPushButton("🔄 Reconfigurar / Nueva Simulación")
         self.btn_reiniciar.setStyleSheet("background-color: #F44336; color: white; padding: 12px 24px; font-size: 13pt; font-weight: bold; border-radius: 5px;")
-        self.btn_reiniciar.clicked.connect(self.reiniciar)
+        self.btn_reiniciar.clicked.connect(self.mostrar_configuracion)
         layout.addWidget(self.btn_reiniciar)
 
         layout.addStretch()
         group.setLayout(layout)
         return group
+    
+    def mostrar_configuracion(self):
+        """Abre la ventana de diálogo para configurar parámetros."""
+        config_dialog = ConfiguracionWindow(self)
+        if config_dialog.exec_() == QDialog.Accepted:
+            self.parametros_simulacion = config_dialog.parametros
+            self.lbl_status.setText(f"✅ Configuración cargada. Llegan cada {self.parametros_simulacion['tiempo_entre_llegadas']:.1f} min.")
+            self.set_botones_habilitados(True)
+            self.reiniciar_tabla()
+        else:
+            self.lbl_status.setText("❌ Configuración cancelada. Presione 'Reconfigurar / Nueva Simulación'.")
+            self.set_botones_habilitados(False)
+
 
     def ejecutar_simulacion(self):
         """Ejecuta la simulación completa"""
+        if not self.parametros_simulacion:
+            QMessageBox.warning(self, "Advertencia", "Debe configurar y cargar los parámetros primero.")
+            self.mostrar_configuracion()
+            return
+            
+        self.reiniciar_tabla()
+
         self.btn_ejecutar.setEnabled(False)
         self.btn_exportar.setEnabled(False)
         self.progress_bar.setVisible(True)
         self.progress_bar.setRange(0, 0)
         self.lbl_status.setText("⏳ Ejecutando simulación completa...")
 
-        # Crear nueva simulación
-        self.simulacion = Simulacion()
+        # Inyectamos los parámetros en la simulación
+        self.simulacion = Simulacion(self.parametros_simulacion)
 
-        # Ejecutar en thread
         self.thread = SimulacionThread(self.simulacion)
         self.thread.finished.connect(self.simulacion_completada)
         self.thread.error.connect(self.simulacion_error)
@@ -670,10 +803,10 @@ class MainWindow(QMainWindow):
         """Callback cuando termina la simulación"""
         self.historial_filas = historial_filas
         self.progress_bar.setVisible(False)
+        self.set_botones_habilitados(True)
         self.btn_ejecutar.setEnabled(True)
         self.btn_exportar.setEnabled(True)
 
-        # Poblar tabla con COLUMNAS DINÁMICAS
         self.poblar_tabla()
         
         # CÁLCULO DE MÉTRICAS FINALES
@@ -689,7 +822,6 @@ class MainWindow(QMainWindow):
 
         self.lbl_status.setText(f"✅ Simulación completa: {len(historial_filas)} eventos | "
                                 f"T. Sim: {self.simulacion.reloj:.2f} min | "
-                                f"Clientes generados: {total_clientes} | "
                                 f"% Rechazados: {porcentaje_rechazados:.2f}%")
 
         QMessageBox.information(self, "Simulación Completa",
@@ -705,101 +837,82 @@ class MainWindow(QMainWindow):
     def simulacion_error(self, error_msg):
         """Callback cuando hay error"""
         self.progress_bar.setVisible(False)
+        self.set_botones_habilitados(True)
         self.btn_ejecutar.setEnabled(True)
         self.lbl_status.setText("❌ Error en la simulación")
         QMessageBox.critical(self, "Error", f"Error en la simulación:\n\n{error_msg}")
 
-    def poblar_tabla(self):
-        """Pobla la tabla con columnas dinámicas según los clientes"""
-        if not self.historial_filas:
-            return
+    def reiniciar_tabla(self):
+        """Limpia los datos y la tabla de la simulación anterior."""
+        self.simulacion = None
+        self.historial_filas = []
+        self.tabla.setRowCount(0)
+        self.tabla.setColumnCount(0)
+        self.btn_exportar.setEnabled(False)
+        self.lbl_status.setText("⏰ Esperando...")
 
-        # Determinar todos los clientes únicos que aparecen (excluyendo la fila de inicialización)
+
+    def poblar_tabla(self):
+        if not self.historial_filas: return
+
         todos_clientes_ids = set()
-        for fila in self.historial_filas[1:]: # Ignorar fila de inicialización
+        for fila in self.historial_filas[1:]: 
             for cliente in fila['clientes']:
-                # Evitar clientes con estado 'RECHAZADO' en el ID dinámico si se decidiera rastrearlos
                 if cliente.estado != "RECHAZADO":
                     todos_clientes_ids.add(cliente.id)
-
         clientes_ordenados = sorted(list(todos_clientes_ids))
 
-        # COLUMNAS FIJAS - ESTADO ELIMINADO
         columnas_fijas = [
             "n°", "Evento", "Reloj",
             "T.entre llegadas", "Próxima llegada", 
             "RND obj", "Objetivo", 
-            # Pedir libro (búsqueda exponencial)
             "RND búsq", "T.búsqueda (EXP)", "fin_búsq_emp1", "fin_búsq_emp2",
-            # Decisión de leer
             "RND decisión", "Se retira?", "RND pág", "Páginas", "T.lectura (Euler)",
-            # Devolución
             "RND dev", "T.devolución", "fin_dev_emp1", "fin_dev_emp2",
-            # Consulta
             "RND cons", "T.consulta", "fin_cons",
-            # Empleados
             "Emp1", "AC at1", "AC oc1", "Emp2", "AC at2", "AC oc2",
-            # Biblioteca (Estado Eliminado)
             "Cola", "AC perm", "AC leyendo"
         ]
 
-        # COLUMNAS DINÁMICAS POR CADA CLIENTE
         columnas_clientes = []
         for cid in clientes_ordenados:
             columnas_clientes.extend([
-                f"C{cid} Estado",
-                f"C{cid} Hora",
-                f"C{cid} T.at",
-                f"C{cid} Fin lect"
+                f"C{cid} Estado", f"C{cid} Hora", f"C{cid} T.at", f"C{cid} Fin lect"
             ])
 
         todas_columnas = columnas_fijas + columnas_clientes
 
-        # Configurar tabla
         self.tabla.setColumnCount(len(todas_columnas))
         self.tabla.setHorizontalHeaderLabels(todas_columnas)
         self.tabla.setRowCount(len(self.historial_filas))
 
-        # Configurar header
         header = self.tabla.horizontalHeader()
         header.setDefaultSectionSize(85)
         header.setSectionResizeMode(QHeaderView.Interactive)
 
-        # Llenar filas
         for row, fila in enumerate(self.historial_filas):
             self.agregar_fila(row, fila, clientes_ordenados)
 
     def agregar_fila(self, row: int, datos: dict, clientes_ordenados: List[int]):
-        """Agrega una fila a la tabla, resaltando el próximo evento a ocurrir."""
         def fmt(val):
-            if val == '' or val is None:
-                return ''
-            if isinstance(val, float):
-                return f"{val:.2f}"
+            if val == '' or val is None: return ''
+            if isinstance(val, float): return f"{val:.2f}"
             return str(val)
 
-        # Lógica para determinar el tiempo del próximo evento a ocurrir (el mínimo > 0)
         tiempos_proximos = []
-        
-        # 1. Próxima llegada
         prox_llegada_val = datos.get('proxima_llegada')
         if isinstance(prox_llegada_val, (int, float)) and prox_llegada_val > datos['reloj']:
             tiempos_proximos.append(prox_llegada_val)
-
-        # 2. Fines de atención
         for key in ['fin_atencion_alq1', 'fin_atencion_alq2', 'fin_atencion_dev1', 'fin_atencion_dev2', 'fin_atencion_cons']:
             t_fin = datos.get(key)
             if isinstance(t_fin, (int, float)) and t_fin > datos['reloj']:
                 tiempos_proximos.append(t_fin)
-        
-        # 3. Fines de lectura de clientes activos (buscar en la lista de clientes)
         for cliente in datos['clientes']:
             if cliente.estado == "Leyendo" and cliente.fin_lectura is not None and cliente.fin_lectura > datos['reloj']:
                 tiempos_proximos.append(cliente.fin_lectura)
 
         min_tiempo_proximo = min(tiempos_proximos) if tiempos_proximos else None
 
-        # Definir índices de columna para el resaltado (AJUSTADOS)
         COL_PROX_LLEGADA = 4
         COL_FIN_BUSQ_EMP1 = 9
         COL_FIN_BUSQ_EMP2 = 10
@@ -807,173 +920,87 @@ class MainWindow(QMainWindow):
         COL_FIN_DEV_EMP2 = 19
         COL_FIN_CONS = 22
         
-        # Lógica para mostrar RND/Objetivo solo en el evento de llegada y si no es RECHAZADO
         es_llegada = datos['evento'].startswith(TipoEvento.LLEGADA_CLIENTE.value)
         es_rechazado = datos['objetivo'] == 'RECHAZADO'
         mostrar_rnd_obj = es_llegada and not es_rechazado
         
-        # Valores fijos - orden según las nuevas columnas (ESTADO ELIMINADO, ÍNDICES AJUSTADOS)
         valores = [
-            datos['n'],                                     # 0 n°
-            datos['evento'],                                # 1 Evento
-            fmt(datos['reloj']),                            # 2 Reloj
-            fmt(datos['tiempo_entre_llegadas']),            # 3 T.entre llegadas
-            fmt(datos['proxima_llegada']),                  # 4 Próxima llegada
-            
-            # RND obj (SOLO se muestra en LLEGADA_CLIENTE y si NO es rechazado)
-            fmt(datos['rnd_objetivo']) if mostrar_rnd_obj else '', # 5 RND obj
-            # Objetivo (SOLO se muestra en LLEGADA_CLIENTE, muestra RECHAZADO si aplica)
-            datos['objetivo'] if es_llegada else '',         # 6 Objetivo
-            
-            # Pedir libro (búsqueda)
-            fmt(datos['rnd_busqueda']),                     # 7 RND búsq
-            fmt(datos['tiempo_busqueda']),                  # 8 T.búsqueda (EXP)
-            fmt(datos['fin_atencion_alq1']),                # 9 fin_búsq_emp1
-            fmt(datos['fin_atencion_alq2']),                # 10 fin_búsq_emp2
-            # Decisión de leer
-            fmt(datos['rnd_decision']),                     # 11 RND decisión
-            datos['se_retira'],                             # 12 Se retira?
-            fmt(datos['rnd_paginas']),                      # 13 RND pág
-            datos['paginas'],                               # 14 Páginas
-            fmt(datos['tiempo_lectura']),                   # 15 T.lectura (Euler)
-            # Devolución
-            fmt(datos['rnd_devolucion']),                   # 16 RND dev
-            fmt(datos['tiempo_devolucion']),                # 17 T.devolución
-            fmt(datos['fin_atencion_dev1']),                # 18 fin_dev_emp1
-            fmt(datos['fin_atencion_dev2']),                # 19 fin_dev_emp2
-            # Consulta
-            fmt(datos['rnd_consulta']),                     # 20 RND cons
-            fmt(datos['tiempo_consulta']),                  # 21 T.consulta
-            fmt(datos['fin_atencion_cons']),                # 22 fin_cons
-            # Empleados
-            datos['empleado1_estado'],                      # 23 Emp1
-            fmt(datos['empleado1_ac_atencion']),            # 24 AC at1
-            fmt(datos['empleado1_ac_ocioso']),              # 25 AC oc1
-            datos['empleado2_estado'],                      # 26 Emp2
-            fmt(datos['empleado2_ac_atencion']),            # 27 AC at2
-            fmt(datos['empleado2_ac_ocioso']),              # 28 AC oc2
-            # Biblioteca (Estado Eliminado, Índices Recorridos)
-            str(datos['cola']),                             # 29 Cola (Antes 30)
-            fmt(datos['ac_tiempo_permanencia']),            # 30 AC perm (Antes 31)
-            str(datos['ac_clientes_leyendo'])               # 31 AC leyendo (Antes 32)
+            datos['n'], datos['evento'], fmt(datos['reloj']), fmt(datos['tiempo_entre_llegadas']), fmt(datos['proxima_llegada']),
+            fmt(datos['rnd_objetivo']) if mostrar_rnd_obj else '', datos['objetivo'] if es_llegada else '',         
+            fmt(datos['rnd_busqueda']), fmt(datos['tiempo_busqueda']), fmt(datos['fin_atencion_alq1']), fmt(datos['fin_atencion_alq2']),
+            fmt(datos['rnd_decision']), datos['se_retira'], fmt(datos['rnd_paginas']), datos['paginas'], fmt(datos['tiempo_lectura']),
+            fmt(datos['rnd_devolucion']), fmt(datos['tiempo_devolucion']), fmt(datos['fin_atencion_dev1']), fmt(datos['fin_atencion_dev2']),
+            fmt(datos['rnd_consulta']), fmt(datos['tiempo_consulta']), fmt(datos['fin_atencion_cons']),
+            datos['empleado1_estado'], fmt(datos['empleado1_ac_atencion']), fmt(datos['empleado1_ac_ocioso']), 
+            datos['empleado2_estado'], fmt(datos['empleado2_ac_atencion']), fmt(datos['empleado2_ac_ocioso']), 
+            str(datos['cola']), fmt(datos['ac_tiempo_permanencia']), str(datos['ac_clientes_leyendo']) 
         ]
 
-        # Mapeo de columna fija a tiempo de evento (para chequeo de resaltado)
         map_tiempos_fijos = {
-            COL_PROX_LLEGADA: datos.get('proxima_llegada'),
-            COL_FIN_BUSQ_EMP1: datos.get('fin_atencion_alq1'),
-            COL_FIN_BUSQ_EMP2: datos.get('fin_atencion_alq2'),
-            COL_FIN_DEV_EMP1: datos.get('fin_atencion_dev1'),
-            COL_FIN_DEV_EMP2: datos.get('fin_atencion_dev2'),
-            COL_FIN_CONS: datos.get('fin_atencion_cons'),
+            COL_PROX_LLEGADA: datos.get('proxima_llegada'), COL_FIN_BUSQ_EMP1: datos.get('fin_atencion_alq1'),
+            COL_FIN_BUSQ_EMP2: datos.get('fin_atencion_alq2'), COL_FIN_DEV_EMP1: datos.get('fin_atencion_dev1'),
+            COL_FIN_DEV_EMP2: datos.get('fin_atencion_dev2'), COL_FIN_CONS: datos.get('fin_atencion_cons'),
         }
         
-        # Valores dinámicos por cliente
-        clientes_dict = {c.id: c for c in datos['clientes']}
-        
-        # Mapeo de columna dinámica a tiempo de evento
-        col_offset = len(valores) # Inicio de las columnas dinámicas
-        
+        col_offset = len(valores)
+        # INICIO CORRECCIÓN DEL NAME ERROR: DEFINIR clientes_dict AQUÍ
+        clientes_dict = {c.id: c for c in datos['clientes']} 
+
         for cid in clientes_ordenados:
             if cid in clientes_dict:
                 c = clientes_dict[cid]
-                # Determinar tiempo de atención según objetivo
-                tiempo_at = ''
-                if c.tiempo_busqueda > 0:
-                    tiempo_at = c.tiempo_busqueda
-                elif c.tiempo_devolucion > 0:
-                    tiempo_at = c.tiempo_devolucion
-                elif c.tiempo_consulta > 0:
-                    tiempo_at = c.tiempo_consulta
-
-                valores.extend([
-                    c.estado,                           # Columna col_offset + 0
-                    fmt(c.hora_llegada),                # Columna col_offset + 1
-                    fmt(tiempo_at) if tiempo_at else '', # Columna col_offset + 2
-                    fmt(c.fin_lectura) if c.fin_lectura else '' # Columna col_offset + 3 (Fin Lectura)
-                ])
-                
-                # Agregar Fin Lectura a mapeo de tiempos si es el próximo
+                tiempo_at = next((t for t in [c.tiempo_busqueda, c.tiempo_devolucion, c.tiempo_consulta] if t > 0), '')
+                valores.extend([c.estado, fmt(c.hora_llegada), fmt(tiempo_at) if tiempo_at else '', fmt(c.fin_lectura) if c.fin_lectura else ''])
                 if c.estado == "Leyendo" and c.fin_lectura is not None:
                     map_tiempos_fijos[col_offset + 3] = c.fin_lectura
-
             else:
-                # El cliente ya salió (no está en clientes_activos). Se deja vacío en la traza dinámica.
                 valores.extend(['', '', '', ''])
-            
             col_offset += 4
 
-
-        # Insertar valores
         for col, valor in enumerate(valores):
             item = QTableWidgetItem(str(valor))
             item.setTextAlignment(Qt.AlignCenter)
 
-            # Colores de fondo de fila
             color_fondo = QColor(249, 249, 249) if row % 2 == 0 else QColor(255, 255, 255)
             
-            # Colores por tipo de Evento (columna 1)
             if col == 1:
-                if 'inicializacion' in str(valor).lower():
-                    color_fondo = QColor(230, 230, 250) 
-                elif 'llegada' in str(valor).lower():
-                    color_fondo = QColor(200, 230, 201)
-                elif 'fin_atencion' in str(valor).lower():
-                    color_fondo = QColor(255, 224, 178)
-                elif 'fin_lectura' in str(valor).lower():
-                    color_fondo = QColor(187, 222, 251)
+                if 'inicializacion' in str(valor).lower(): color_fondo = QColor(230, 230, 250) 
+                elif 'llegada' in str(valor).lower(): color_fondo = QColor(200, 230, 201)
+                elif 'fin_atencion' in str(valor).lower(): color_fondo = QColor(255, 224, 178)
+                elif 'fin_lectura' in str(valor).lower(): color_fondo = QColor(187, 222, 251)
 
-            # Colorear la celda de Objetivo si el cliente fue RECHAZADO
             if es_llegada and es_rechazado and col == 6:
-                color_fondo = QColor(255, 199, 206) # Rojo claro para rechazo
+                color_fondo = QColor(255, 199, 206)
             
             item.setBackground(color_fondo)
 
-
-            # >>> RESALTADO DEL PRÓXIMO EVENTO (COLOR ROJO) <<<
-            # 1. Comprobar si esta columna está en el mapeo de tiempos próximos
             tiempo_columna = map_tiempos_fijos.get(col)
-            
-            # 2. Resaltar si coincide con el mínimo global y es mayor al reloj actual
             if min_tiempo_proximo is not None and tiempo_columna == min_tiempo_proximo and tiempo_columna > datos['reloj']:
-                item.setForeground(QColor(255, 0, 0)) # Color de texto rojo fuerte
-                item.setFont(QFont("Arial", 9, QFont.Bold))
+                 item.setForeground(QColor(255, 0, 0))
+                 item.setFont(QFont("Arial", 9, QFont.Bold))
 
             self.tabla.setItem(row, col, item)
 
     def exportar_excel(self):
-        """Exporta la tabla a Excel"""
         if not OPENPYXL_DISPONIBLE:
-            QMessageBox.warning(self, "Advertencia",
-                                "La librería 'openpyxl' no está instalada.\n\n"
-                                "Instálala con: pip install openpyxl")
+            QMessageBox.warning(self, "Advertencia", "La librería 'openpyxl' no está instalada.\nInstálala con: pip install openpyxl")
             return
-
         if not self.historial_filas:
             QMessageBox.warning(self, "Advertencia", "No hay datos para exportar")
             return
 
-        filename, _ = QFileDialog.getSaveFileName(
-            self,
-            "Guardar archivo Excel",
-            "simulacion_biblioteca.xlsx",
-            "Excel Files (*.xlsx)"
-        )
-
-        if not filename:
-            return
+        filename, _ = QFileDialog.getSaveFileName(self, "Guardar archivo Excel", "simulacion_biblioteca.xlsx", "Excel Files (*.xlsx)")
+        if not filename: return
 
         try:
             wb = openpyxl.Workbook()
             ws = wb.active
             ws.title = "Simulación"
-
-            # Estilos
+            
             header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
             header_font = ExcelFont(bold=True, color="FFFFFF")
             center_align = Alignment(horizontal="center", vertical="center")
 
-            # Headers
             for col in range(self.tabla.columnCount()):
                 cell = ws.cell(row=1, column=col + 1)
                 cell.value = self.tabla.horizontalHeaderItem(col).text()
@@ -981,7 +1008,6 @@ class MainWindow(QMainWindow):
                 cell.font = header_font
                 cell.alignment = center_align
 
-            # Datos
             for row in range(self.tabla.rowCount()):
                 for col in range(self.tabla.columnCount()):
                     item = self.tabla.item(row, col)
@@ -991,30 +1017,20 @@ class MainWindow(QMainWindow):
                         cell.alignment = center_align
 
             wb.save(filename)
-            QMessageBox.information(self, "Éxito",
-                                    f"✅ Archivo exportado correctamente:\n{filename}")
+            QMessageBox.information(self, "Éxito", f"✅ Archivo exportado correctamente:\n{filename}")
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error al exportar:\n\n{str(e)}")
 
     def reiniciar(self):
-        """Reinicia la aplicación"""
-        self.simulacion = None
-        self.historial_filas = []
-        self.tabla.setRowCount(0)
-        self.tabla.setColumnCount(0)
-        self.btn_exportar.setEnabled(False)
-        self.lbl_status.setText("⏰ Esperando...")
+        self.mostrar_configuracion()
 
 
 def main():
-    """Función principal"""
     app = QApplication(sys.argv)
     app.setStyle('Fusion')
-
     window = MainWindow()
     window.show()
-
     sys.exit(app.exec_())
 
 
