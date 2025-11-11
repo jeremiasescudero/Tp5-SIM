@@ -7,7 +7,7 @@
   "tiempo_consulta_max": 5.0,
   "prob_retirarse": 0.2,
   "tiempo_simulacion": 10000.0,
-  "max_iteraciones": 100000,
+  "max_iteraciones": 5000,
   "k_100_200": 100,
   "k_200_300": 90,
   "k_300_plus": 70,
