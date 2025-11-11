@@ -1,13 +1,6 @@
 """
 Aplicación PyQt5 para simulación de biblioteca con tabla de eventos
-Replica la estructura exacta mostrada en la imagen Excel con encabezados agrupados
-
-INTEGRACIÓN NUMÉRICA DE EULER:
-- Se usa para calcular el tiempo de lectura de libros
-- Resuelve la ecuación diferencial: dP/dt = K/5
-- Donde P = páginas leídas, K = constante según el número de páginas del libro
-- El método de Euler integra numéricamente hasta que P >= total_páginas
-- Ver clase IntegradorEuler para la implementación
+... (Resto del código idéntico hasta Simulacion._capturar_estado)
 """
 import sys
 import random
@@ -16,7 +9,7 @@ import math
 from enum import Enum
 from dataclasses import dataclass
 from typing import List, Optional, Dict
-import copy # <-- AGREGADO
+import copy # AGREGADO
 
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -36,105 +29,71 @@ except ImportError:
 
 
 # ==================== INTEGRADOR DE EULER ====================
-
+# ... (Clase IntegradorEuler - Sin Cambios)
 class IntegradorEuler:
-    """
-    INTEGRACIÓN NUMÉRICA POR MÉTODO DE EULER
-    
-    ... (Mismo código)
-    """
-
+    """INTEGRACIÓN NUMÉRICA POR MÉTODO DE EULER"""
     def __init__(self, h: float, K: int, p_inicial: float = 0):
         self.h = h
         self.K = K
         self.p = p_inicial
         self.t = 0.0
-
     def derivada(self, p: float, t: float) -> float:
-        """Función derivada: dP/dt = K/5"""
         return self.K / 5.0
-
     def paso(self) -> float:
-        """Ejecuta un paso del método de Euler"""
-        # Euler: p_nuevo = p_actual + h * f(p_actual, t_actual)
         self.p = self.p + self.h * self.derivada(self.p, self.t)
         self.t += self.h
         return self.p
-
     def integrar_hasta_paginas(self, paginas_objetivo: float) -> float:
-        """Integra hasta alcanzar las páginas objetivo y retorna el tiempo total"""
         while self.p < paginas_objetivo:
             self.paso()
         return self.t
 
 
 # ==================== ENUMS Y DATACLASSES ====================
-
+# ... (Clases TipoEvento, TipoObjetivo, EstadoEmpleado, Evento, Cliente, Empleado - Sin Cambios)
 class TipoEvento(Enum):
-    """Tipos de eventos en la simulación"""
     INICIALIZACION = "inicializacion"
     LLEGADA_CLIENTE = "llegada_alquiler"
     FIN_ATENCION = "fin_atencion_cliente"
     FIN_LECTURA = "fin_lectura"
     FIN_SIMULACION = "fin_simulacion"
-
-
 class TipoObjetivo(Enum):
-    """Objetivos del cliente"""
     PEDIR_LIBRO = "Pedir libro"
     DEVOLVER_LIBRO = "Devolver libro"
     CONSULTAR = "Consultar"
-
-
 class EstadoEmpleado(Enum):
-    """Estados del empleado"""
     LIBRE = "Libre"
     OCUPADO = "Ocupado"
-
-
 @dataclass
 class Evento:
-    """Representa un evento en la simulación"""
     tiempo: float
     tipo: TipoEvento
     datos: dict
-
     def __lt__(self, otro):
         return self.tiempo < otro.tiempo
-
-
 @dataclass
 class Cliente:
-    """Representa un cliente en el sistema"""
     id: int
     hora_llegada: float
     objetivo: TipoObjetivo
     rnd_objetivo: float
-    # Tiempos de servicio según tipo
     rnd_tiempo_consulta: float = 0.0
     tiempo_consulta: float = 0.0
     rnd_tiempo_busqueda: float = 0.0
     tiempo_busqueda: float = 0.0
     rnd_tiempo_devolucion: float = 0.0
     tiempo_devolucion: float = 0.0
-    # Fin de atención
     fin_atencion_emp1: Optional[float] = None
     fin_atencion_emp2: Optional[float] = None
-    # Lectura
-    se_retira: bool = False  # Si se retira o se queda a leer
+    se_retira: bool = False
     rnd_decision: Optional[float] = None
     paginas_a_leer: int = 0
     rnd_paginas: Optional[float] = None
     tiempo_lectura: float = 0.0
     fin_lectura: Optional[float] = None
-    # Estado
     estado: str = "En cola"
     hora_salida: Optional[float] = None
-
-
 class Empleado:
-    """Representa un empleado del mostrador"""
-
     def __init__(self, id: int):
         self.id = id
         self.estado = EstadoEmpleado.LIBRE
@@ -143,23 +102,18 @@ class Empleado:
         self.tiempo_acumulado_atencion = 0.0
         self.tiempo_acumulado_ocioso = 0.0
         self.ultimo_cambio_estado = 0.0
-
     def esta_libre(self):
         return self.estado == EstadoEmpleado.LIBRE
-
     def atender(self, cliente: Cliente, tiempo_fin: float, reloj: float):
         if self.estado == EstadoEmpleado.LIBRE:
             self.tiempo_acumulado_ocioso += reloj - self.ultimo_cambio_estado
-
         self.estado = EstadoEmpleado.OCUPADO
         self.cliente_actual = cliente
         self.hora_fin_atencion = tiempo_fin
         self.ultimo_cambio_estado = reloj
-
     def liberar(self, reloj: float):
         if self.estado == EstadoEmpleado.OCUPADO:
             self.tiempo_acumulado_atencion += reloj - self.ultimo_cambio_estado
-
         self.estado = EstadoEmpleado.LIBRE
         cliente = self.cliente_actual
         self.cliente_actual = None
@@ -169,48 +123,29 @@ class Empleado:
 
 
 # ==================== MOTOR DE SIMULACIÓN ====================
-
+# ... (Clase Simulacion: __init__, determinar_K, generar_objetivo, generar_tiempo_consulta, etc. - Sin Cambios)
 class Simulacion:
     """Motor de simulación de eventos discretos"""
 
     def __init__(self):
-        # PARÁMETROS CONFIGURABLES (marcados en rojo en la imagen)
-        self.tiempo_entre_llegadas = 4.0  # Tiempo entre llegadas (deterministico)
-
-        # Probabilidades de objetivo
+        self.tiempo_entre_llegadas = 4.0
         self.prob_pedir_libro = 0.45
         self.prob_devolver_libro = 0.45
         self.prob_consultar = 0.10
-
-        # Tiempos de consulta U[2, 5]
         self.tiempo_consulta_min = 2.0
         self.tiempo_consulta_max = 5.0
-
-        # Tiempo de búsqueda EXP(media=6)
         self.media_busqueda = 6.0
-
-        # Tiempo de devolución U[2±0.5] = [1.5, 2.5]
         self.tiempo_devolucion_min = 1.5
         self.tiempo_devolucion_max = 2.5
-
-        # Probabilidad de retirarse (60% se retira, 40% se queda)
         self.prob_retirarse = 0.60
-
-        # Páginas U[100, 350]
         self.paginas_min = 100
         self.paginas_max = 350
-
-        # Constantes K para Euler según rango de páginas
         self.K_100_200 = 100
         self.K_200_300 = 90
         self.K_300_plus = 70
-
-        # Sistema
         self.capacidad_maxima = 20
         self.tiempo_maximo = 480.0
-        self.h_euler = 0.1  # Paso de integración de Euler (10 min)
-
-        # Estado de la simulación
+        self.h_euler = 0.1
         self.reloj = 0.0
         self.eventos = []
         self.clientes_activos: List[Cliente] = []
@@ -219,30 +154,23 @@ class Simulacion:
         self.empleados = [Empleado(1), Empleado(2)]
         self.contador_clientes = 0
         self.numero_fila = 0
-        self.ultimo_reloj = 0.0 # Para calcular tiempo acumulado
-
-        # Acumuladores
+        self.ultimo_reloj = 0.0
         self.ac_tiempo_permanencia = 0.0
         self.total_clientes_atendidos = 0
         self.total_clientes_leyendo = 0
-        
-        # NUEVAS MÉTRICAS
         self.total_clientes_generados = 0
         self.total_clientes_rechazados = 0
         self.biblioteca_cerrada = False
         self.tiempo_biblioteca_cerrada_ac = 0.0
         self.tiempo_inicio_cerrada: Optional[float] = None
-
-        # Historial de filas para la tabla
         self.historial_filas: List[dict] = []
 
     def determinar_K(self, num_paginas: int) -> int:
-        """Determina el valor de K según el número de páginas"""
         if 100 <= num_paginas <= 200:
             return self.K_100_200
         elif 200 < num_paginas <= 300:
             return self.K_200_300
-        else:  # más de 300
+        else:
             return self.K_300_plus
 
     def generar_objetivo(self) -> tuple:
@@ -255,19 +183,16 @@ class Simulacion:
             return TipoObjetivo.CONSULTAR, rnd
 
     def generar_tiempo_consulta(self) -> tuple:
-        """Genera tiempo de consulta: Uniforme [2, 5] minutos"""
         rnd = random.random()
         tiempo = self.tiempo_consulta_min + (self.tiempo_consulta_max - self.tiempo_consulta_min) * rnd
         return tiempo, rnd
 
     def generar_tiempo_busqueda(self) -> tuple:
-        """Genera tiempo de búsqueda de libro: Exponencial con media 6 minutos"""
         rnd = random.random()
         tiempo = -self.media_busqueda * math.log(1 - rnd)
         return tiempo, rnd
 
     def generar_tiempo_devolucion(self) -> tuple:
-        """Genera tiempo de devolución: Uniforme [1.5, 2.5] minutos"""
         rnd = random.random()
         tiempo = self.tiempo_devolucion_min + (self.tiempo_devolucion_max - self.tiempo_devolucion_min) * rnd
         return tiempo, rnd
@@ -281,23 +206,18 @@ class Simulacion:
         return None
 
     def actualizar_tiempo_cerrada(self):
-        """Acumula el tiempo que la biblioteca estuvo cerrada"""
         if self.biblioteca_cerrada and self.tiempo_inicio_cerrada is not None:
             self.tiempo_biblioteca_cerrada_ac += self.reloj - self.tiempo_inicio_cerrada
             self.tiempo_inicio_cerrada = self.reloj
 
     def iniciar(self):
-        """Inicia la simulación"""
-        
-        # 1. Agregar evento de Inicialización (Fila 0)
         self.numero_fila = 0
         self.historial_filas.append(self._capturar_estado(
             Evento(tiempo=0.0, tipo=TipoEvento.INICIALIZACION, datos={})
         ))
-        self.numero_fila += 1 # Prepara el contador para el primer evento
+        self.numero_fila += 1
         self.ultimo_reloj = 0.0
 
-        # 2. Programar la primera llegada (a los 4 minutos)
         tiempo_primera_llegada = self.tiempo_entre_llegadas
         self.agregar_evento(Evento(
             tiempo=tiempo_primera_llegada,
@@ -305,7 +225,6 @@ class Simulacion:
             datos={}
         ))
 
-        # 3. Programar el fin de simulación
         self.agregar_evento(Evento(
             tiempo=self.tiempo_maximo,
             tipo=TipoEvento.FIN_SIMULACION,
@@ -315,11 +234,9 @@ class Simulacion:
     def procesar_llegada_cliente(self, evento: Evento):
         self.total_clientes_generados += 1
         
-        # Lógica de cierre y rechazo
         if len(self.clientes_activos) >= self.capacidad_maxima:
             self.total_clientes_rechazados += 1
             
-            # Próxima llegada (solo se programa si no se ha alcanzado el tiempo máximo)
             proxima_llegada = self.reloj + self.tiempo_entre_llegadas
             if proxima_llegada < self.tiempo_maximo:
                 self.agregar_evento(Evento(
@@ -328,18 +245,16 @@ class Simulacion:
                     datos={}
                 ))
             
-            # Devolvemos un cliente fantasma solo para el registro de la fila
             cliente_rechazado = Cliente(
                 id=self.total_clientes_generados, 
                 hora_llegada=self.reloj,
-                objetivo=TipoObjetivo.CONSULTAR, # Dummy value, no relevante
+                objetivo=TipoObjetivo.CONSULTAR, 
                 rnd_objetivo=0.0,
-                estado="RECHAZADO" # Marcador para el estado
+                estado="RECHAZADO" 
             )
             evento.datos['cliente'] = cliente_rechazado
-            return # Termina el procesamiento de llegada, el cliente es rechazado
+            return
 
-        # Si no es rechazado, procedemos a crearlo e ingresarlo
         self.contador_clientes += 1
         objetivo, rnd_objetivo = self.generar_objetivo()
         cliente = Cliente(
@@ -350,9 +265,8 @@ class Simulacion:
         )
 
         self.clientes_activos.append(cliente)
-        evento.datos['cliente'] = cliente # Adjuntamos el cliente real al evento
+        evento.datos['cliente'] = cliente
         
-        # Verificar si la llegada llena la capacidad (para cerrar)
         if len(self.clientes_activos) >= self.capacidad_maxima:
             self.biblioteca_cerrada = True
             self.tiempo_inicio_cerrada = self.reloj
@@ -364,7 +278,6 @@ class Simulacion:
             self.cola_espera.append(cliente)
             cliente.estado = "En cola"
 
-        # Próxima llegada (determinístico)
         proxima_llegada = self.reloj + self.tiempo_entre_llegadas
         if proxima_llegada < self.tiempo_maximo:
             self.agregar_evento(Evento(
@@ -380,10 +293,8 @@ class Simulacion:
         return None
 
     def _atender_cliente(self, cliente: Cliente, empleado: Empleado):
-        """Atiende un cliente según su objetivo"""
         cliente.estado = "Siendo atendido"
 
-        # Determinar tiempo de atención según el tipo de acción
         if cliente.objetivo == TipoObjetivo.CONSULTAR:
             tiempo_atencion, rnd = self.generar_tiempo_consulta()
             cliente.tiempo_consulta = tiempo_atencion
@@ -394,7 +305,7 @@ class Simulacion:
             cliente.tiempo_busqueda = tiempo_atencion
             cliente.rnd_tiempo_busqueda = rnd
 
-        else:  # DEVOLVER_LIBRO
+        else:
             tiempo_atencion, rnd = self.generar_tiempo_devolucion()
             cliente.tiempo_devolucion = tiempo_atencion
             cliente.rnd_tiempo_devolucion = rnd
@@ -420,31 +331,24 @@ class Simulacion:
 
         empleado.liberar(self.reloj)
 
-        # Solo los que piden libros pueden quedarse a leer
         if cliente.objetivo == TipoObjetivo.PEDIR_LIBRO:
             rnd_decision = random.random()
             cliente.rnd_decision = rnd_decision
 
-            # 60% se retira, 40% se queda a leer
             if rnd_decision < self.prob_retirarse:
-                # Se retira
                 cliente.se_retira = True
                 cliente.estado = "Fuera del sistema" 
                 cliente.hora_salida = self.reloj
                 self._cliente_sale(cliente)
             else:
-                # Se queda a leer (40%)
                 cliente.se_retira = False
                 cliente.estado = "Leyendo" 
 
-                # Generar páginas a leer: U[100, 350]
                 rnd_paginas = random.random()
                 cliente.rnd_paginas = rnd_paginas
                 cliente.paginas_a_leer = int(self.paginas_min +
                                              (self.paginas_max - self.paginas_min) * rnd_paginas)
 
-                # *** APLICACIÓN DEL MÉTODO DE EULER ***
-                # Calcular tiempo de lectura usando integración numérica
                 K = self.determinar_K(cliente.paginas_a_leer)
                 integrador = IntegradorEuler(h=self.h_euler, K=K, p_inicial=0)
                 cliente.tiempo_lectura = integrador.integrar_hasta_paginas(cliente.paginas_a_leer)
@@ -459,12 +363,10 @@ class Simulacion:
                     datos={'cliente': cliente}
                 ))
         else:
-            # Consultas y devoluciones se retiran directamente
             cliente.estado = "Fuera del sistema" 
             cliente.hora_salida = self.reloj
             self._cliente_sale(cliente)
 
-        # Atender siguiente en cola si hay
         if self.cola_espera and empleado.esta_libre():
             siguiente = self.cola_espera.pop(0)
             self._atender_cliente(siguiente, empleado)
@@ -480,10 +382,6 @@ class Simulacion:
         self._cliente_sale(cliente)
 
     def _cliente_sale(self, cliente: Cliente):
-        """
-        Finaliza el ciclo del cliente y lo remueve del sistema activo.
-        """
-        # Si el cliente está en clientes_activos, lo removemos.
         if cliente in self.clientes_activos:
             self.clientes_activos.remove(cliente)
 
@@ -493,32 +391,25 @@ class Simulacion:
 
         self.total_clientes_atendidos += 1
 
-        # Si el cliente sale y la capacidad era máxima, la biblioteca se "abre"
         if self.biblioteca_cerrada and len(self.clientes_activos) < self.capacidad_maxima:
             self.biblioteca_cerrada = False
-            self.tiempo_inicio_cerrada = None # Resetea el tiempo de inicio
+            self.tiempo_inicio_cerrada = None
 
     def ejecutar_paso(self) -> Optional[dict]:
-        """Ejecuta un paso y retorna los datos para la tabla"""
         evento = self.proximo_evento()
         if not evento or evento.tipo == TipoEvento.FIN_SIMULACION:
-            # Acumular el tiempo final si quedó abierta/cerrada
             if self.biblioteca_cerrada and self.tiempo_inicio_cerrada is not None:
                  self.tiempo_biblioteca_cerrada_ac += self.tiempo_maximo - self.reloj
             
             return None
 
-        # 1. Actualizar acumulados de tiempo (antes de avanzar el reloj)
         if self.biblioteca_cerrada and self.tiempo_inicio_cerrada is not None:
-             # Acumular tiempo cerrado en el intervalo
             tiempo_transcurrido = evento.tiempo - self.reloj
             self.tiempo_biblioteca_cerrada_ac += tiempo_transcurrido
 
-        # 2. Avanzar reloj
         self.reloj = evento.tiempo
         self.ultimo_reloj = self.reloj
         
-        # 3. Procesar evento
         if evento.tipo == TipoEvento.LLEGADA_CLIENTE:
             self.procesar_llegada_cliente(evento)
         elif evento.tipo == TipoEvento.FIN_ATENCION:
@@ -526,7 +417,6 @@ class Simulacion:
         elif evento.tipo == TipoEvento.FIN_LECTURA:
             self.procesar_fin_lectura(evento)
 
-        # 4. Capturar estado DESPUÉS de procesar el evento
         fila_datos = self._capturar_estado(evento)
 
         self.historial_filas.append(fila_datos)
@@ -535,129 +425,71 @@ class Simulacion:
         return fila_datos
 
     def ejecutar_completa(self):
-        """Ejecuta la simulación completa de una vez"""
         self.iniciar()
-
         while True:
             resultado = self.ejecutar_paso()
             if resultado is None:
                 break
-
         return self.historial_filas
 
     def _capturar_estado(self, evento: Evento) -> dict:
-        """Captura el estado para la tabla"""
-        
-        # Lógica especial para la Inicialización
-        if evento.tipo == TipoEvento.INICIALIZACION:
-            return {
-                'n': self.numero_fila,
-                'evento': evento.tipo.value,
-                'reloj': 0.0,
-                'tiempo_entre_llegadas': self.tiempo_entre_llegadas,
-                'proxima_llegada': self.tiempo_entre_llegadas,
-                'rnd_llegada': '',
-                'objetivo': '',
-                'rnd_objetivo': '',
-                'rnd_busqueda': '', 'tiempo_busqueda': '', 'fin_atencion_alq1': '', 'fin_atencion_alq2': '',
-                'rnd_decision': '', 'se_retira': '', 'rnd_paginas': '', 'paginas': '', 'tiempo_lectura': '',
-                'rnd_devolucion': '', 'tiempo_devolucion': '', 'fin_atencion_dev1': '', 'fin_atencion_dev2': '',
-                'rnd_consulta': '', 'tiempo_consulta': '', 'fin_atencion_cons': '',
-                'empleado1_estado': EstadoEmpleado.LIBRE.value,
-                'empleado1_ac_atencion': 0.0,
-                'empleado1_ac_ocioso': 0.0,
-                'empleado2_estado': EstadoEmpleado.LIBRE.value,
-                'empleado2_ac_atencion': 0.0,
-                'empleado2_ac_ocioso': 0.0,
-                'estado_biblioteca': 'Abierta',
-                'cola': 0,
-                'ac_tiempo_permanencia': 0.0,
-                'ac_clientes_leyendo': 0,
-                'clientes': []
-            }
-
-
         proximos = sorted(self.eventos, key=lambda e: e.tiempo)[:3]
         cliente_actual = evento.datos.get('cliente')
 
-        # Determinar RND y tiempo de búsqueda de libro (para PEDIR_LIBRO)
-        rnd_busqueda = ''
-        tiempo_busqueda = ''
-        if cliente_actual and cliente_actual.objetivo == TipoObjetivo.PEDIR_LIBRO:
-            rnd_busqueda = cliente_actual.rnd_tiempo_busqueda if cliente_actual.rnd_tiempo_busqueda > 0 else ''
-            tiempo_busqueda = cliente_actual.tiempo_busqueda if cliente_actual.tiempo_busqueda > 0 else ''
+        # --- MODIFICACIÓN CLAVE AQUÍ ---
+        evento_str = evento.tipo.value
+        if cliente_actual and evento.tipo != TipoEvento.INICIALIZACION:
+             # Agregar ID del cliente al tipo de evento
+             evento_str = f"{evento.tipo.value} C{cliente_actual.id}"
 
-        # Determinar RND y tiempo de devolución (para DEVOLVER_LIBRO)
-        rnd_devolucion = ''
-        tiempo_devolucion = ''
-        if cliente_actual and cliente_actual.objetivo == TipoObjetivo.DEVOLVER_LIBRO:
-            rnd_devolucion = cliente_actual.rnd_tiempo_devolucion if cliente_actual.rnd_tiempo_devolucion > 0 else ''
-            tiempo_devolucion = cliente_actual.tiempo_devolucion if cliente_actual.tiempo_devolucion > 0 else ''
 
-        # Determinar RND y tiempo de consulta (para CONSULTAR)
-        rnd_consulta = ''
-        tiempo_consulta = ''
-        if cliente_actual and cliente_actual.objetivo == TipoObjetivo.CONSULTAR:
-            rnd_consulta = cliente_actual.rnd_tiempo_consulta if cliente_actual.rnd_tiempo_consulta > 0 else ''
-            tiempo_consulta = cliente_actual.tiempo_consulta if cliente_actual.tiempo_consulta > 0 else ''
+        rnd_busqueda = cliente_actual.rnd_tiempo_busqueda if cliente_actual and cliente_actual.objetivo == TipoObjetivo.PEDIR_LIBRO and cliente_actual.rnd_tiempo_busqueda > 0 else ''
+        tiempo_busqueda = cliente_actual.tiempo_busqueda if cliente_actual and cliente_actual.objetivo == TipoObjetivo.PEDIR_LIBRO and cliente_actual.tiempo_busqueda > 0 else ''
+        rnd_devolucion = cliente_actual.rnd_tiempo_devolucion if cliente_actual and cliente_actual.objetivo == TipoObjetivo.DEVOLVER_LIBRO and cliente_actual.rnd_tiempo_devolucion > 0 else ''
+        tiempo_devolucion = cliente_actual.tiempo_devolucion if cliente_actual and cliente_actual.objetivo == TipoObjetivo.DEVOLVER_LIBRO and cliente_actual.tiempo_devolucion > 0 else ''
+        rnd_consulta = cliente_actual.rnd_tiempo_consulta if cliente_actual and cliente_actual.objetivo == TipoObjetivo.CONSULTAR and cliente_actual.rnd_tiempo_consulta > 0 else ''
+        tiempo_consulta = cliente_actual.tiempo_consulta if cliente_actual and cliente_actual.objetivo == TipoObjetivo.CONSULTAR and cliente_actual.tiempo_consulta > 0 else ''
 
-        # Buscar próxima llegada en eventos futuros
-        proxima_llegada = ''
-        for e in proximos:
-            if e.tipo == TipoEvento.LLEGADA_CLIENTE:
-                proxima_llegada = e.tiempo
-                break
+        proxima_llegada = next((e.tiempo for e in proximos if e.tipo == TipoEvento.LLEGADA_CLIENTE), '')
 
-        # Caso especial para rechazo (el cliente no tiene todos los atributos de Cliente)
         objetivo_val = cliente_actual.objetivo.value if cliente_actual and cliente_actual.estado != "RECHAZADO" else ('RECHAZADO' if cliente_actual and cliente_actual.estado == "RECHAZADO" else '')
         rnd_obj_val = cliente_actual.rnd_objetivo if cliente_actual and cliente_actual.estado != "RECHAZADO" else ''
 
-        # Copia profunda de los clientes activos para evitar que los cambios posteriores
-        # (ej: la salida del cliente) modifiquen la traza histórica.
-        clientes_copiados = [copy.deepcopy(c) for c in self.clientes_activos] # <-- CORRECCIÓN CLAVE AQUÍ
+        clientes_copiados = [copy.deepcopy(c) for c in self.clientes_activos]
 
         return {
             'n': self.numero_fila,
-            'evento': evento.tipo.value,
+            'evento': evento_str, # <-- USANDO EL NUEVO STRING
             'reloj': self.reloj,
-            'tiempo_entre_llegadas': self.tiempo_entre_llegadas if evento.tipo == TipoEvento.LLEGADA_CLIENTE else '',
-            'proxima_llegada': proxima_llegada,
-            'rnd_llegada': '',  # Eliminado
-            'rnd_objetivo': rnd_obj_val, # Reordenado
-            'objetivo': objetivo_val,    # Reordenado
-            # Pedir libro (búsqueda)
-            'rnd_busqueda': rnd_busqueda,
-            'tiempo_busqueda': tiempo_busqueda,
+            'tiempo_entre_llegadas': self.tiempo_entre_llegadas if evento.tipo == TipoEvento.LLEGADA_CLIENTE or evento.tipo == TipoEvento.INICIALIZACION else '',
+            'proxima_llegada': proxima_llegada if evento.tipo != TipoEvento.INICIALIZACION else self.tiempo_entre_llegadas,
+            'rnd_llegada': '',
+            'rnd_objetivo': rnd_obj_val,
+            'objetivo': objetivo_val,
+            'rnd_busqueda': rnd_busqueda, 'tiempo_busqueda': tiempo_busqueda,
             'fin_atencion_alq1': cliente_actual.fin_atencion_emp1 if cliente_actual and cliente_actual.objetivo == TipoObjetivo.PEDIR_LIBRO else '',
             'fin_atencion_alq2': cliente_actual.fin_atencion_emp2 if cliente_actual and cliente_actual.objetivo == TipoObjetivo.PEDIR_LIBRO else '',
-            # Decisión de quedarse a leer
             'rnd_decision': cliente_actual.rnd_decision if cliente_actual and cliente_actual.rnd_decision is not None else '',
             'se_retira': 'Sí' if cliente_actual and cliente_actual.se_retira else ('No' if cliente_actual and cliente_actual.rnd_decision is not None else ''),
             'rnd_paginas': cliente_actual.rnd_paginas if cliente_actual and cliente_actual.rnd_paginas else '',
             'paginas': cliente_actual.paginas_a_leer if cliente_actual and cliente_actual.paginas_a_leer > 0 else '',
             'tiempo_lectura': cliente_actual.tiempo_lectura if cliente_actual and cliente_actual.tiempo_lectura > 0 else '',
-            # Devolución
-            'rnd_devolucion': rnd_devolucion,
-            'tiempo_devolucion': tiempo_devolucion,
+            'rnd_devolucion': rnd_devolucion, 'tiempo_devolucion': tiempo_devolucion,
             'fin_atencion_dev1': cliente_actual.fin_atencion_emp1 if cliente_actual and cliente_actual.objetivo == TipoObjetivo.DEVOLVER_LIBRO else '',
             'fin_atencion_dev2': cliente_actual.fin_atencion_emp2 if cliente_actual and cliente_actual.objetivo == TipoObjetivo.DEVOLVER_LIBRO else '',
-            # Consulta
-            'rnd_consulta': rnd_consulta,
-            'tiempo_consulta': tiempo_consulta,
+            'rnd_consulta': rnd_consulta, 'tiempo_consulta': tiempo_consulta,
             'fin_atencion_cons': (cliente_actual.fin_atencion_emp1 or cliente_actual.fin_atencion_emp2) if cliente_actual and cliente_actual.objetivo == TipoObjetivo.CONSULTAR else '',
-            # Empleados
             'empleado1_estado': self.empleados[0].estado.value,
             'empleado1_ac_atencion': self.empleados[0].tiempo_acumulado_atencion,
             'empleado1_ac_ocioso': self.empleados[0].tiempo_acumulado_ocioso,
             'empleado2_estado': self.empleados[1].estado.value,
             'empleado2_ac_atencion': self.empleados[1].tiempo_acumulado_atencion,
             'empleado2_ac_ocioso': self.empleados[1].tiempo_acumulado_ocioso,
-            # Biblioteca
             'estado_biblioteca': 'Cerrada' if self.biblioteca_cerrada else 'Abierta',
             'cola': len(self.cola_espera),
             'ac_tiempo_permanencia': self.ac_tiempo_permanencia,
             'ac_clientes_leyendo': self.total_clientes_leyendo,
-            'clientes': clientes_copiados # <-- USANDO LA COPIA PROFUNDA
+            'clientes': clientes_copiados
         }
 
 
@@ -976,7 +808,7 @@ class MainWindow(QMainWindow):
         COL_FIN_CONS = 22
         
         # Lógica para mostrar RND/Objetivo solo en el evento de llegada y si no es RECHAZADO
-        es_llegada = datos['evento'] == TipoEvento.LLEGADA_CLIENTE.value
+        es_llegada = datos['evento'].startswith(TipoEvento.LLEGADA_CLIENTE.value)
         es_rechazado = datos['objetivo'] == 'RECHAZADO'
         mostrar_rnd_obj = es_llegada and not es_rechazado
         
