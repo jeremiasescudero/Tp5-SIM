@@ -674,13 +674,13 @@ class ConfiguracionWindow(QDialog):
         # Validación de la suma de probabilidades
         if not math.isclose(p_pedir + p_devolver + p_consultar, 1.0, abs_tol=0.001):
             QMessageBox.critical(self, "Error de Probabilidad", 
-                                 "La suma de las probabilidades de objetivo (Pedir, Devolver, Consultar) debe ser 1.0.")
+                                "La suma de las probabilidades de objetivo (Pedir, Devolver, Consultar) debe ser 1.0.")
             return
         
         # Validación de rangos
         if self.s_cons_min.value() > self.s_cons_max.value():
             QMessageBox.critical(self, "Error de Rango", 
-                                 "El valor mínimo de consulta no puede ser mayor que el máximo.")
+                                "El valor mínimo de consulta no puede ser mayor que el máximo.")
             return
 
         self.parametros = {
@@ -935,7 +935,7 @@ class MainWindow(QMainWindow):
         # CÁLCULO DE MÉTRICAS FINALES
         total_clientes = self.simulacion.total_clientes_generados
         promedio_permanencia = (self.simulacion.ac_tiempo_permanencia / 
-                                 self.simulacion.total_clientes_atendidos) if self.simulacion.total_clientes_atendidos > 0 else 0
+                                self.simulacion.total_clientes_atendidos) if self.simulacion.total_clientes_atendidos > 0 else 0
         
         porcentaje_rechazados = (self.simulacion.total_clientes_rechazados / 
                                  total_clientes) * 100 if total_clientes > 0 else 0
@@ -954,8 +954,8 @@ class MainWindow(QMainWindow):
         
         # Actualizamos la barra de estado inferior
         self.lbl_status.setText(f"✅ Simulación completa: {total_eventos_simulados} eventos | "
-                                 f"T. Sim: {self.simulacion.reloj:.2f} min | "
-                                 f"% Rechazados: {porcentaje_rechazados:.2f}%")
+                                f"T. Sim: {self.simulacion.reloj:.2f} min | "
+                                f"% Rechazados: {porcentaje_rechazados:.2f}%")
 
     def simulacion_error(self, error_msg):
         """Callback cuando hay error"""
@@ -1114,8 +1114,8 @@ class MainWindow(QMainWindow):
 
             tiempo_columna = map_tiempos_fijos.get(col)
             if min_tiempo_proximo is not None and tiempo_columna == min_tiempo_proximo and tiempo_columna > datos['reloj']:
-                 item.setForeground(QColor(255, 0, 0))
-                 item.setFont(QFont("Arial", 9, QFont.Bold))
+                item.setForeground(QColor(255, 0, 0))
+                item.setFont(QFont("Arial", 9, QFont.Bold))
 
             self.tabla.setItem(row, col, item)
 
@@ -1145,9 +1145,9 @@ class MainWindow(QMainWindow):
             
             # Tomar encabezados de la tabla
             if self.tabla.columnCount() == 0:
-                 QMessageBox.warning(self, "Advertencia", "La tabla no se ha inicializado correctamente. Ejecute la simulación primero.")
-                 return
-                 
+                QMessageBox.warning(self, "Advertencia", "La tabla no se ha inicializado correctamente. Ejecute la simulación primero.")
+                return
+
             headers = [self.tabla.horizontalHeaderItem(col).text() for col in range(self.tabla.columnCount())]
             
             # --- HOJA 1: SIMULACIÓN DE EVENTOS (TODAS LAS FILAS) ---
@@ -1185,10 +1185,10 @@ class MainWindow(QMainWindow):
 
                 cliente_actual = None
                 if cliente_id_evento is not None:
-                     cliente_actual = next((c for c in fila_data['clientes'] if c.id == cliente_id_evento), None)
+                    cliente_actual = next((c for c in fila_data['clientes'] if c.id == cliente_id_evento), None)
                 
                 if cliente_actual and cliente_actual.estado == 'RECHAZADO':
-                     cliente_actual = None 
+                    cliente_actual = None 
                 
                 # Generar valores para columnas fijas
                 rnd_busqueda = cliente_actual.rnd_tiempo_busqueda if cliente_actual and cliente_actual.objetivo == TipoObjetivo.PEDIR_LIBRO and cliente_actual.rnd_tiempo_busqueda > 0 else ''
@@ -1256,11 +1256,11 @@ class MainWindow(QMainWindow):
                     # Buscar páginas del cliente (solo para mostrar como referencia)
                     paginas_cliente = 0
                     for fila in self.historial_filas:
-                         clientes = fila.get('clientes', [])
-                         cliente_data = next((c for c in clientes if c.id == cliente_id), None)
-                         if cliente_data and cliente_data.paginas_a_leer > 0:
-                              paginas_cliente = cliente_data.paginas_a_leer
-                              break
+                        clientes = fila.get('clientes', [])
+                        cliente_data = next((c for c in clientes if c.id == cliente_id), None)
+                        if cliente_data and cliente_data.paginas_a_leer > 0:
+                            paginas_cliente = cliente_data.paginas_a_leer
+                            break
                     
                     # Título del cliente y parámetros
                     ws_euler.cell(row=row_offset, column=1, value=f"Cliente C{cliente_id}").font = ExcelFont(bold=True)
