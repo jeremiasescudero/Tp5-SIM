@@ -7,7 +7,8 @@
       "Bash(python gui_biblioteca_v2.py:*)",
       "Bash(python gui_pyqt5.py:*)",
       "Bash(taskkill:*)",
-      "Bash(nul)"
+      "Bash(nul)",
+      "Bash(python:*)"
     ],
     "deny": [],
     "ask": []

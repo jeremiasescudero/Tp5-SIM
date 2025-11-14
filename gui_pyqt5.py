@@ -74,7 +74,7 @@ class IntegradorEuler:
 
 class TipoEvento(Enum):
     INICIALIZACION = "inicializacion"
-    LLEGADA_CLIENTE = "llegada_alquiler"
+    LLEGADA_CLIENTE = "llegada_cliente"
     FIN_ATENCION = "fin_atencion_cliente"
     FIN_LECTURA = "fin_lectura"
     FIN_SIMULACION = "fin_simulacion"
@@ -161,15 +161,17 @@ class Simulacion:
         self.prob_retirarse = parametros.get('prob_retirarse', 0.60)
         self.max_iteraciones = parametros.get('max_iteraciones', 10000) 
         
+        # --- PARÁMETROS DE K PARA INTEGRACIÓN ---
+        self.K_100_200 = parametros.get('K_100_200', 100)
+        self.K_200_300 = parametros.get('K_200_300', 90)
+        self.K_300_plus = parametros.get('K_300_plus', 70)
+
         # --- PARÁMETROS FIJOS (VALORES PREDETERMINADOS) ---
         self.media_busqueda = 6.0
         self.tiempo_devolucion_min = 1.5
         self.tiempo_devolucion_max = 2.5
         self.paginas_min = 100
         self.paginas_max = 350
-        self.K_100_200 = 100
-        self.K_200_300 = 90
-        self.K_300_plus = 70
         self.capacidad_maxima = 20
         self.tiempo_maximo = 480.0
         self.h_euler = 0.1
@@ -408,13 +410,24 @@ class Simulacion:
 
     def procesar_fin_lectura(self, evento: Evento):
         cliente = evento.datos['cliente']
-        cliente.estado = "Fuera del sistema" 
-        cliente.hora_salida = self.reloj
 
         if cliente in self.clientes_leyendo:
             self.clientes_leyendo.remove(cliente)
 
-        self._cliente_sale(cliente)
+        # El cliente ahora debe DEVOLVER el libro
+        # Cambiar su objetivo a devolver libro
+        cliente.objetivo = TipoObjetivo.DEVOLVER_LIBRO
+
+        # Buscar empleado libre
+        empleado_libre = self._obtener_empleado_libre()
+        if empleado_libre:
+            # Atender inmediatamente para devolución
+            cliente.estado = "Siendo atendido"
+            self._atender_cliente(cliente, empleado_libre)
+        else:
+            # Si no hay empleado libre, entrar a la cola
+            cliente.estado = "En cola"
+            self.cola_espera.append(cliente)
 
     def _cliente_sale(self, cliente: Cliente):
         if cliente in self.clientes_activos:
@@ -488,7 +501,6 @@ class Simulacion:
         if cliente_actual and evento.tipo != TipoEvento.INICIALIZACION:
             evento_str = f"{evento.tipo.value} C{cliente_actual.id}"
 
-
         rnd_busqueda = cliente_actual.rnd_tiempo_busqueda if cliente_actual and cliente_actual.objetivo == TipoObjetivo.PEDIR_LIBRO and cliente_actual.rnd_tiempo_busqueda > 0 else ''
         tiempo_busqueda = cliente_actual.tiempo_busqueda if cliente_actual and cliente_actual.objetivo == TipoObjetivo.PEDIR_LIBRO and cliente_actual.tiempo_busqueda > 0 else ''
         rnd_devolucion = cliente_actual.rnd_tiempo_devolucion if cliente_actual and cliente_actual.objetivo == TipoObjetivo.DEVOLVER_LIBRO and cliente_actual.rnd_tiempo_devolucion > 0 else ''
@@ -503,6 +515,34 @@ class Simulacion:
 
         clientes_copiados = [copy.deepcopy(c) for c in self.clientes_activos]
 
+        # NUEVO: Capturar TODOS los tiempos de fin de atención pendientes (de TODOS los empleados)
+        fin_atencion_alq1 = ''
+        fin_atencion_alq2 = ''
+        fin_atencion_dev1 = ''
+        fin_atencion_dev2 = ''
+        fin_atencion_cons = ''
+
+        # Buscar en empleados ocupados sus tiempos de finalización
+        if self.empleados[0].hora_fin_atencion is not None and self.empleados[0].hora_fin_atencion > self.reloj:
+            cliente_emp1 = self.empleados[0].cliente_actual
+            if cliente_emp1:
+                if cliente_emp1.objetivo == TipoObjetivo.PEDIR_LIBRO:
+                    fin_atencion_alq1 = self.empleados[0].hora_fin_atencion
+                elif cliente_emp1.objetivo == TipoObjetivo.DEVOLVER_LIBRO:
+                    fin_atencion_dev1 = self.empleados[0].hora_fin_atencion
+                elif cliente_emp1.objetivo == TipoObjetivo.CONSULTAR:
+                    fin_atencion_cons = self.empleados[0].hora_fin_atencion
+
+        if self.empleados[1].hora_fin_atencion is not None and self.empleados[1].hora_fin_atencion > self.reloj:
+            cliente_emp2 = self.empleados[1].cliente_actual
+            if cliente_emp2:
+                if cliente_emp2.objetivo == TipoObjetivo.PEDIR_LIBRO:
+                    fin_atencion_alq2 = self.empleados[1].hora_fin_atencion
+                elif cliente_emp2.objetivo == TipoObjetivo.DEVOLVER_LIBRO:
+                    fin_atencion_dev2 = self.empleados[1].hora_fin_atencion
+                elif cliente_emp2.objetivo == TipoObjetivo.CONSULTAR and not fin_atencion_cons:
+                    fin_atencion_cons = self.empleados[1].hora_fin_atencion
+
         return {
             'n': self.numero_fila,
             'evento': evento_str,
@@ -513,18 +553,18 @@ class Simulacion:
             'rnd_objetivo': rnd_obj_val,
             'objetivo': objetivo_val,
             'rnd_busqueda': rnd_busqueda, 'tiempo_busqueda': tiempo_busqueda,
-            'fin_atencion_alq1': cliente_actual.fin_atencion_emp1 if cliente_actual and cliente_actual.objetivo == TipoObjetivo.PEDIR_LIBRO else '',
-            'fin_atencion_alq2': cliente_actual.fin_atencion_emp2 if cliente_actual and cliente_actual.objetivo == TipoObjetivo.PEDIR_LIBRO else '',
+            'fin_atencion_alq1': fin_atencion_alq1,
+            'fin_atencion_alq2': fin_atencion_alq2,
             'rnd_decision': cliente_actual.rnd_decision if cliente_actual and cliente_actual.rnd_decision is not None else '',
             'se_retira': 'Sí' if cliente_actual and cliente_actual.se_retira else ('No' if cliente_actual and cliente_actual.rnd_decision is not None else ''),
             'rnd_paginas': cliente_actual.rnd_paginas if cliente_actual and cliente_actual.rnd_paginas else '',
             'paginas': cliente_actual.paginas_a_leer if cliente_actual and cliente_actual.paginas_a_leer > 0 else '',
             'tiempo_lectura': cliente_actual.tiempo_lectura if cliente_actual and cliente_actual.tiempo_lectura > 0 else '',
             'rnd_devolucion': rnd_devolucion, 'tiempo_devolucion': tiempo_devolucion,
-            'fin_atencion_dev1': cliente_actual.fin_atencion_emp1 if cliente_actual and cliente_actual.objetivo == TipoObjetivo.DEVOLVER_LIBRO else '',
-            'fin_atencion_dev2': cliente_actual.fin_atencion_emp2 if cliente_actual and cliente_actual.objetivo == TipoObjetivo.DEVOLVER_LIBRO else '',
+            'fin_atencion_dev1': fin_atencion_dev1,
+            'fin_atencion_dev2': fin_atencion_dev2,
             'rnd_consulta': rnd_consulta, 'tiempo_consulta': tiempo_consulta,
-            'fin_atencion_cons': (cliente_actual.fin_atencion_emp1 or cliente_actual.fin_atencion_emp2) if cliente_actual and cliente_actual.objetivo == TipoObjetivo.CONSULTAR else '',
+            'fin_atencion_cons': fin_atencion_cons,
             'empleado1_estado': self.empleados[0].estado.value,
             'empleado1_ac_atencion': self.empleados[0].tiempo_acumulado_atencion,
             'empleado1_ac_ocioso': self.empleados[0].tiempo_acumulado_ocioso,
@@ -632,14 +672,25 @@ class ConfiguracionWindow(QDialog):
         group_lectura_decision.layout().addRow("P(Se retira después de pedir):", self.s_prob_retirarse)
         layout.addRow(group_lectura_decision)
         
-        # 5. Número de Iteraciones Máximo
-        group_iteraciones = QGroupBox("5. Iteraciones y Simulación")
+        # 5. Constantes K para Integración Numérica
+        group_K = QGroupBox("5. Constantes K para Integración (según rango de páginas)")
+        group_K.setLayout(QFormLayout())
+        self.s_K_100_200 = QSpinBox(value=100, minimum=1, maximum=500, singleStep=5)
+        self.s_K_200_300 = QSpinBox(value=90, minimum=1, maximum=500, singleStep=5)
+        self.s_K_300_plus = QSpinBox(value=70, minimum=1, maximum=500, singleStep=5)
+        group_K.layout().addRow("K para [100-200] páginas:", self.s_K_100_200)
+        group_K.layout().addRow("K para (200-300] páginas:", self.s_K_200_300)
+        group_K.layout().addRow("K para (300+) páginas:", self.s_K_300_plus)
+        layout.addRow(group_K)
+
+        # 6. Número de Iteraciones Máximo
+        group_iteraciones = QGroupBox("6. Iteraciones y Simulación")
         group_iteraciones.setLayout(QFormLayout())
         # Maximo de 100000 iteraciones
         self.s_max_iteraciones = QSpinBox(value=10000, minimum=1, maximum=100000, singleStep=1000)
         group_iteraciones.layout().addRow("Iteraciones Máx. (Eventos):", self.s_max_iteraciones)
         layout.addRow(group_iteraciones)
-        
+
         return widget
     
     def crear_tab_fijos(self):
@@ -649,17 +700,15 @@ class ConfiguracionWindow(QDialog):
 
         group_fijos = QGroupBox("Parámetros Fijos (No Parametrizables por Requerimiento)")
         group_fijos.setStyleSheet("QGroupBox { font-style: italic; } QLabel { color: #6c757d; }")
-        
+
         fixed_layout = QFormLayout()
         fixed_layout.addRow("T. Búsqueda (Media EXP):", QLabel("6.0 min"))
         fixed_layout.addRow("T. Devolución (U[Min, Max]):", QLabel("U[1.5, 2.5] min"))
         fixed_layout.addRow("Páginas (U[Min, Max]):", QLabel("U[100, 350]"))
-        fixed_layout.addRow("Constante K [100-200 pág]:", QLabel("100"))
-        fixed_layout.addRow("Constante K [201-300 pág]:", QLabel("90"))
-        fixed_layout.addRow("Constante K [> 300 pág]:", QLabel("70"))
         fixed_layout.addRow("Capacidad Máxima:", QLabel("20 personas"))
         fixed_layout.addRow("T. Simulación Máximo:", QLabel("480.0 min (Solo para métricas de % tiempo cerrada)"))
-        
+        fixed_layout.addRow("Paso h (Euler):", QLabel("0.1 (Unidad = 10 min)"))
+
         group_fijos.setLayout(fixed_layout)
         layout.addRow(group_fijos)
         return widget
@@ -691,7 +740,10 @@ class ConfiguracionWindow(QDialog):
             'tiempo_consulta_min': self.s_cons_min.value(),
             'tiempo_consulta_max': self.s_cons_max.value(),
             'prob_retirarse': self.s_prob_retirarse.value(),
-            'max_iteraciones': self.s_max_iteraciones.value(), 
+            'K_100_200': self.s_K_100_200.value(),
+            'K_200_300': self.s_K_200_300.value(),
+            'K_300_plus': self.s_K_300_plus.value(),
+            'max_iteraciones': self.s_max_iteraciones.value(),
         }
         self.accept()
 
@@ -787,10 +839,13 @@ class MainWindow(QMainWindow):
         # 1. Pestaña de la Tabla (Eventos)
         self.tabla = QTableWidget()
         self.tabla.setAlternatingRowColors(True)
+        self.tabla.setSelectionBehavior(QTableWidget.SelectRows)
+        self.tabla.setSelectionMode(QTableWidget.SingleSelection)
         self.tabla.setStyleSheet("""
             QTableWidget { gridline-color: #d0d0d0; font-size: 9pt; background-color: white; }
             QHeaderView::section { background-color: #4472C4; color: white; font-weight: bold; padding: 6px; border: 1px solid #2a52a4; }
             QTableWidget::item:alternate { background-color: #f9f9f9; }
+            QTableWidget::item:selected { background-color: #0078d7; color: white; }
         """)
         
         scroll = QScrollArea()
@@ -1001,7 +1056,7 @@ class MainWindow(QMainWindow):
         columnas_clientes = []
         for cid in clientes_ordenados:
             columnas_clientes.extend([
-                f"C{cid} Estado", f"C{cid} Hora", f"C{cid} T.at", f"C{cid} Fin lect"
+                f"C{cid} Estado", f"C{cid} Objetivo", f"C{cid} Hora", f"C{cid} T.at", f"C{cid} Fin lect"
             ])
 
         todas_columnas = columnas_fijas + columnas_clientes
@@ -1036,22 +1091,30 @@ class MainWindow(QMainWindow):
             if isinstance(val, float): return f"{val:.2f}"
             return str(val)
 
-        tiempos_proximos = []
+        reloj_actual = datos['reloj']
+        clientes_dict = {c.id: c for c in datos['clientes']}
+
+        # Recolectar todos los tiempos futuros para identificar el próximo evento
+        tiempos_futuros = []
+
+        # Próxima llegada
         prox_llegada_val = datos.get('proxima_llegada')
-        if isinstance(prox_llegada_val, (int, float)) and prox_llegada_val > datos['reloj']:
-            tiempos_proximos.append(prox_llegada_val)
+        if isinstance(prox_llegada_val, (int, float)) and prox_llegada_val > reloj_actual:
+            tiempos_futuros.append(prox_llegada_val)
+
+        # Fin de atenciones
         for key in ['fin_atencion_alq1', 'fin_atencion_alq2', 'fin_atencion_dev1', 'fin_atencion_dev2', 'fin_atencion_cons']:
             t_fin = datos.get(key)
-            if isinstance(t_fin, (int, float)) and t_fin > datos['reloj']:
-                tiempos_proximos.append(t_fin)
-        
-        clientes_dict = {c.id: c for c in datos['clientes']} 
-        
-        for cliente in datos['clientes']:
-            if cliente.estado == "Leyendo" and cliente.fin_lectura is not None and cliente.fin_lectura > datos['reloj']:
-                tiempos_proximos.append(cliente.fin_lectura)
+            if isinstance(t_fin, (int, float)) and t_fin > reloj_actual:
+                tiempos_futuros.append(t_fin)
 
-        min_tiempo_proximo = min(tiempos_proximos) if tiempos_proximos else None
+        # Fin de lecturas
+        for cliente in datos['clientes']:
+            if cliente.fin_lectura is not None and cliente.fin_lectura > reloj_actual:
+                tiempos_futuros.append(cliente.fin_lectura)
+
+        # Identificar el mínimo tiempo futuro (próximo evento)
+        min_tiempo_futuro = min(tiempos_futuros) if tiempos_futuros else None
 
         COL_PROX_LLEGADA = 4
         COL_FIN_BUSQ_EMP1 = 9
@@ -1059,63 +1122,103 @@ class MainWindow(QMainWindow):
         COL_FIN_DEV_EMP1 = 18
         COL_FIN_DEV_EMP2 = 19
         COL_FIN_CONS = 22
-        
+
         es_llegada = datos['evento'].startswith(TipoEvento.LLEGADA_CLIENTE.value)
         es_rechazado = datos['objetivo'] == 'RECHAZADO'
         mostrar_rnd_obj = es_llegada and not es_rechazado
-        
+
         valores = [
             datos['n'], datos['evento'], fmt(datos['reloj']), fmt(datos['tiempo_entre_llegadas']), fmt(datos['proxima_llegada']),
-            fmt(datos['rnd_objetivo']) if mostrar_rnd_obj else '', datos['objetivo'] if es_llegada else '',       
+            fmt(datos['rnd_objetivo']) if mostrar_rnd_obj else '', datos['objetivo'] if es_llegada else '',
             fmt(datos['rnd_busqueda']), fmt(datos['tiempo_busqueda']), fmt(datos['fin_atencion_alq1']), fmt(datos['fin_atencion_alq2']),
             fmt(datos['rnd_decision']), datos['se_retira'], fmt(datos['rnd_paginas']), datos['paginas'], fmt(datos['tiempo_lectura']),
             fmt(datos['rnd_devolucion']), fmt(datos['tiempo_devolucion']), fmt(datos['fin_atencion_dev1']), fmt(datos['fin_atencion_dev2']),
             fmt(datos['rnd_consulta']), fmt(datos['tiempo_consulta']), fmt(datos['fin_atencion_cons']),
-            datos['empleado1_estado'], fmt(datos['empleado1_ac_atencion']), fmt(datos['empleado1_ac_ocioso']), 
-            datos['empleado2_estado'], fmt(datos['empleado2_ac_atencion']), fmt(datos['empleado2_ac_ocioso']), 
-            str(datos['cola']), fmt(datos['ac_tiempo_permanencia']), str(datos['ac_clientes_leyendo']) 
+            datos['empleado1_estado'], fmt(datos['empleado1_ac_atencion']), fmt(datos['empleado1_ac_ocioso']),
+            datos['empleado2_estado'], fmt(datos['empleado2_ac_atencion']), fmt(datos['empleado2_ac_ocioso']),
+            str(datos['cola']), fmt(datos['ac_tiempo_permanencia']), str(datos['ac_clientes_leyendo'])
         ]
 
-        map_tiempos_fijos = {
-            COL_PROX_LLEGADA: datos.get('proxima_llegada'), COL_FIN_BUSQ_EMP1: datos.get('fin_atencion_alq1'),
-            COL_FIN_BUSQ_EMP2: datos.get('fin_atencion_alq2'), COL_FIN_DEV_EMP1: datos.get('fin_atencion_dev1'),
-            COL_FIN_DEV_EMP2: datos.get('fin_atencion_dev2'), COL_FIN_CONS: datos.get('fin_atencion_cons'),
+        # Mapa de tiempos programados en cada columna
+        # Estos tiempos se resaltan en rojo cuando coinciden con el reloj (evento que acaba de ocurrir)
+        map_tiempos_eventos = {
+            COL_PROX_LLEGADA: datos.get('proxima_llegada'),
+            COL_FIN_BUSQ_EMP1: datos.get('fin_atencion_alq1'),
+            COL_FIN_BUSQ_EMP2: datos.get('fin_atencion_alq2'),
+            COL_FIN_DEV_EMP1: datos.get('fin_atencion_dev1'),
+            COL_FIN_DEV_EMP2: datos.get('fin_atencion_dev2'),
+            COL_FIN_CONS: datos.get('fin_atencion_cons'),
         }
         
         col_offset = len(valores)
+
+        def obtener_objetivo_cliente(cliente) -> str:
+            """Retorna una descripción del objetivo/acción del cliente"""
+            if cliente.estado == "RECHAZADO":
+                return "RECHAZADO"
+            elif cliente.estado == "En cola":
+                # Distinguir si está esperando por primera vez o esperando para devolver
+                if cliente.objetivo == TipoObjetivo.DEVOLVER_LIBRO:
+                    return "Esperando devolver"
+                else:
+                    return "En espera"
+            elif cliente.estado == "Siendo atendido":
+                if cliente.objetivo == TipoObjetivo.PEDIR_LIBRO:
+                    return "Pidiendo libro"
+                elif cliente.objetivo == TipoObjetivo.DEVOLVER_LIBRO:
+                    return "Devolviendo"
+                elif cliente.objetivo == TipoObjetivo.CONSULTAR:
+                    return "Consultando"
+            elif cliente.estado == "Leyendo":
+                return "Leyendo"
+            elif cliente.estado == "Fuera del sistema":
+                if cliente.se_retira:
+                    return "Se retiró"
+                else:
+                    return "Finalizó"
+            else:
+                return cliente.objetivo.value if cliente.objetivo else ""
 
         for cid in clientes_ordenados:
             if cid in clientes_dict:
                 c = clientes_dict[cid]
                 tiempo_at = next((t for t in [c.tiempo_busqueda, c.tiempo_devolucion, c.tiempo_consulta] if t > 0), '')
-                valores.extend([c.estado, fmt(c.hora_llegada), fmt(tiempo_at) if tiempo_at else '', fmt(c.fin_lectura) if c.fin_lectura else ''])
-                if c.estado == "Leyendo" and c.fin_lectura is not None:
-                    map_tiempos_fijos[col_offset + 3] = c.fin_lectura
+                objetivo_desc = obtener_objetivo_cliente(c)
+                valores.extend([c.estado, objetivo_desc, fmt(c.hora_llegada), fmt(tiempo_at) if tiempo_at else '', fmt(c.fin_lectura) if c.fin_lectura else ''])
+                # Agregar columna de fin_lectura al mapa para resaltado
+                if c.fin_lectura is not None:
+                    map_tiempos_eventos[col_offset + 4] = c.fin_lectura  # Ajuste por la nueva columna
             else:
-                valores.extend(['', '', '', ''])
-            col_offset += 4
+                valores.extend(['', '', '', '', ''])
+            col_offset += 5  # Ahora son 5 columnas por cliente
+
+        # Tolerancia para comparaciones de punto flotante
+        EPSILON = 0.001
 
         for col, valor in enumerate(valores):
             item = QTableWidgetItem(str(valor))
             item.setTextAlignment(Qt.AlignCenter)
 
             color_fondo = QColor(249, 249, 249) if row % 2 == 0 else QColor(255, 255, 255)
-            
+
             if col == 1:
-                if 'inicializacion' in str(valor).lower(): color_fondo = QColor(230, 230, 250) 
+                if 'inicializacion' in str(valor).lower(): color_fondo = QColor(230, 230, 250)
                 elif 'llegada' in str(valor).lower(): color_fondo = QColor(200, 230, 201)
                 elif 'fin_atencion' in str(valor).lower(): color_fondo = QColor(255, 224, 178)
                 elif 'fin_lectura' in str(valor).lower(): color_fondo = QColor(187, 222, 251)
 
             if es_llegada and es_rechazado and col == 6:
                 color_fondo = QColor(255, 199, 206)
-            
+
             item.setBackground(color_fondo)
 
-            tiempo_columna = map_tiempos_fijos.get(col)
-            if min_tiempo_proximo is not None and tiempo_columna == min_tiempo_proximo and tiempo_columna > datos['reloj']:
-                item.setForeground(QColor(255, 0, 0))
-                item.setFont(QFont("Arial", 9, QFont.Bold))
+            # RESALTAR EN ROJO: El próximo evento a ocurrir (mínimo tiempo futuro > reloj)
+            tiempo_columna = map_tiempos_eventos.get(col)
+            if tiempo_columna is not None and isinstance(tiempo_columna, (int, float)):
+                # Si este tiempo es el próximo evento (mínimo tiempo futuro)
+                if min_tiempo_futuro is not None and abs(tiempo_columna - min_tiempo_futuro) < EPSILON:
+                    item.setForeground(QColor(255, 0, 0))
+                    item.setFont(QFont("Arial", 9, QFont.Bold))
 
             self.tabla.setItem(row, col, item)
 
@@ -1198,7 +1301,7 @@ class MainWindow(QMainWindow):
                 rnd_consulta = cliente_actual.rnd_tiempo_consulta if cliente_actual and cliente_actual.objetivo == TipoObjetivo.CONSULTAR and cliente_actual.rnd_tiempo_consulta > 0 else ''
                 tiempo_consulta = cliente_actual.tiempo_consulta if cliente_actual and cliente_actual.objetivo == TipoObjetivo.CONSULTAR and cliente_actual.tiempo_consulta > 0 else ''
 
-                es_llegada = fila_data['evento'].startswith("llegada_alquiler")
+                es_llegada = fila_data['evento'].startswith("llegada_cliente")
                 es_rechazado = fila_data.get('objetivo') == 'RECHAZADO'
                 mostrar_rnd_obj = es_llegada and not es_rechazado
                 
@@ -1214,16 +1317,44 @@ class MainWindow(QMainWindow):
                     str(fila_data['cola']), fmt_excel(fila_data['ac_tiempo_permanencia']), str(fila_data['ac_clientes_leyendo']) 
                 ]
                 
+                # Función auxiliar para obtener objetivo del cliente (igual que en agregar_fila)
+                def obtener_objetivo_cliente_excel(cliente) -> str:
+                    if cliente.estado == "RECHAZADO":
+                        return "RECHAZADO"
+                    elif cliente.estado == "En cola":
+                        # Distinguir si está esperando por primera vez o esperando para devolver
+                        if cliente.objetivo == TipoObjetivo.DEVOLVER_LIBRO:
+                            return "Esperando devolver"
+                        else:
+                            return "En espera"
+                    elif cliente.estado == "Siendo atendido":
+                        if cliente.objetivo == TipoObjetivo.PEDIR_LIBRO:
+                            return "Pidiendo libro"
+                        elif cliente.objetivo == TipoObjetivo.DEVOLVER_LIBRO:
+                            return "Devolviendo"
+                        elif cliente.objetivo == TipoObjetivo.CONSULTAR:
+                            return "Consultando"
+                    elif cliente.estado == "Leyendo":
+                        return "Leyendo"
+                    elif cliente.estado == "Fuera del sistema":
+                        if cliente.se_retira:
+                            return "Se retiró"
+                        else:
+                            return "Finalizó"
+                    else:
+                        return cliente.objetivo.value if cliente.objetivo else ""
+
                 # Generar valores para columnas dinámicas de clientes
-                clientes_dict = {c.id: c for c in fila_data['clientes']} 
+                clientes_dict = {c.id: c for c in fila_data['clientes']}
                 valores_clientes = []
                 for cid in clientes_ordenados:
                     if cid in clientes_dict:
                         c = clientes_dict[cid]
                         tiempo_at = next((t for t in [c.tiempo_busqueda, c.tiempo_devolucion, c.tiempo_consulta] if t > 0), '')
-                        valores_clientes.extend([c.estado, fmt_excel(c.hora_llegada), fmt_excel(tiempo_at) if tiempo_at else '', fmt_excel(c.fin_lectura) if c.fin_lectura else ''])
+                        objetivo_desc = obtener_objetivo_cliente_excel(c)
+                        valores_clientes.extend([c.estado, objetivo_desc, fmt_excel(c.hora_llegada), fmt_excel(tiempo_at) if tiempo_at else '', fmt_excel(c.fin_lectura) if c.fin_lectura else ''])
                     else:
-                        valores_clientes.extend(['', '', '', ''])
+                        valores_clientes.extend(['', '', '', '', ''])
                 
                 fila_completa = valores_fijos + valores_clientes
                 
